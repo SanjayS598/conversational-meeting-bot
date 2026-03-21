@@ -1,0 +1,35 @@
+# Web framework
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.20
+
+# Google Gemini (new unified SDK — replaces google-generativeai)
+google-genai>=1.0
+
+# LangChain / LangGraph (agent orchestration)
+langchain>=0.3
+langchain-google-genai>=2.0
+langgraph>=0.2
+langchain-core>=0.3
+
+# Data validation
+pydantic>=2.10
+pydantic-settings>=2.7
+
+# Redis (session state)
+redis[hiredis]>=5.2
+
+# HTTP client (backend calls)
+httpx>=0.28
+
+# Async utilities
+anyio>=4.8
+
+# Test / dev utilities (smoke test client)
+websockets>=14.1
+
+# Logging
+structlog>=24.4
+
+# Env
+python-dotenv>=1.0

@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""One-shot: write the live-mic UI to ui_test.html"""
+import pathlib, textwrap
+
+HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gemini Meeting Agent \u2014 Live</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0a0d14;color:#e2e8f0;height:100vh;display:grid;grid-template-columns:300px 1fr;grid-template-rows:60px 1fr;overflow:hidden}
+    header{grid-column:1/-1;background:#111827;border-bottom:1px solid #1f2937;display:flex;align-items:center;padding:0 24px;gap:14px}
+    header h1{font-size:1rem;font-weight:700;color:#a78bfa}
+    .pill{display:flex;align-items:center;gap:6px;background:#1f2937;border-radius:20px;padding:4px 12px;font-size:.75rem;color:#94a3b8}
+    .dot{width:8px;height:8px;border-radius:50%;background:#374151;flex-shrink:0}
+    .dot.live{background:#ef4444;animation:blink 1s infinite}
+    .dot.working{background:#f59e0b;animation:blink .6s infinite}
+    .dot.ok{background:#10b981}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+    .spacer{flex:1}
+    .cfg-btn{background:none;border:1px solid #374151;border-radius:8px;color:#94a3b8;padding:5px 14px;font-size:.78rem;cursor:pointer}
+    .cfg-btn:hover{border-color:#7c3aed;color:#e2e8f0}
+    aside{background:#111827;border-right:1px solid #1f2937;display:flex;flex-direction:column;overflow:hidden}
+    .mic-sec{padding:24px 20px 16px;border-bottom:1px solid #1f2937;display:flex;flex-direction:column;align-items:center;gap:12px}
+    .orb-wrap{position:relative;width:110px;height:110px}
+    .ring{position:absolute;inset:0;border-radius:50%;border:2px solid #7c3aed22}
+    .ring.r1{inset:-8px}.ring.r2{inset:-18px}
+    .orb-wrap.rec .ring{animation:ripple 1.6s ease-out infinite}
+    .orb-wrap.rec .ring.r2{animation-delay:.55s}
+    @keyframes ripple{0%{transform:scale(1);opacity:.7;border-color:#ef444477}100%{transform:scale(1.45);opacity:0}}
+    .orb{width:110px;height:110px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#4c1d95,#1e1b4b);border:2px solid #7c3aed44;display:flex;align-items:center;justify-content:center;font-size:2.2rem;cursor:pointer;transition:transform .15s,box-shadow .15s;position:relative;z-index:1;user-select:none}
+    .orb:hover{transform:scale(1.05);box-shadow:0 0 24px #7c3aed44}
+    .orb-wrap.rec .orb{background:radial-gradient(circle at 35% 35%,#7f1d1d,#450a0a);border-color:#ef444488;box-shadow:0 0 32px #ef444433}
+    .lv-wrap{width:100%;height:4px;background:#1f2937;border-radius:2px;overflow:hidden}
+    .lv-bar{height:100%;background:linear-gradient(90deg,#7c3aed,#ef4444);width:0%;transition:width .07s;border-radius:2px}
+    .timer{font-size:1.4rem;font-weight:700;font-variant-numeric:tabular-nums}
+    .orb-label{font-size:.78rem;color:#64748b;text-align:center}
+    .log-sec{flex:1;overflow:hidden;display:flex;flex-direction:column}
+    .log-sec h3{padding:10px 18px 6px;font-size:.68rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:.05em}
+    .log{flex:1;overflow-y:auto;padding:0 14px 14px;font-family:"SF Mono","Fira Code",monospace;font-size:.69rem;color:#64748b;line-height:1.7}
+    .log .ok{color:#10b981}.log .err{color:#ef4444}.log .ts{color:#334155}
+    main{display:flex;flex-direction:column;overflow:hidden}
+    .tabs{display:flex;border-bottom:1px solid #1f2937;padding:0 20px;background:#111827}
+    .tab{padding:12px 16px;font-size:.8rem;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s}
+    .tab.active{color:#a78bfa;border-bottom-color:#7c3aed}
+    .tab:hover:not(.active){color:#94a3b8}
+    .pane{display:none;flex:1;overflow-y:auto;padding:20px;flex-direction:column;gap:12px}
+    .pane.active{display:flex}
+    .card{background:#111827;border:1px solid #1f2937;border-radius:10px;padding:14px}
+    .card h4{font-size:.68rem;font-weight:600;color:#7c3aed;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+    .chip-list{display:flex;flex-wrap:wrap;gap:6px}
+    .chip{background:#1f2937;border:1px solid #374151;border-radius:14px;padding:3px 9px;font-size:.75rem;color:#cbd5e1}
+    .chip.act{border-color:#7c3aed44;color:#a78bfa;background:#1e1b4b}
+    .none{color:#374151;font-size:.77rem;font-style:italic}
+    .topic-pill{display:inline-flex;align-items:center;gap:6px;background:#1e1b4b;border:1px solid #7c3aed44;border-radius:20px;padding:4px 14px;font-size:.82rem;color:#a78bfa}
+    .tx-feed{display:flex;flex-direction:column;gap:8px}
+    .tx{background:#111827;border:1px solid #1f2937;border-radius:8px;padding:10px 14px;animation:fi .3s ease}
+    @keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+    .tx .spk{font-size:.67rem;font-weight:600;color:#7c3aed;margin-bottom:3px}
+    .tx .txt{font-size:.83rem;color:#cbd5e1;line-height:1.5}
+    .tx .tt{font-size:.65rem;color:#374151;margin-top:4px}
+    .rbubble{background:#1e1b4b;border:1px solid #7c3aed66;border-radius:10px;padding:12px 14px}
+    .rbubble .badge{font-size:.65rem;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px}
+    .rbubble .rtext{font-size:.87rem;color:#c4b5fd;line-height:1.55}
+    .empty-pane{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#374151;padding:40px;text-align:center}
+    .empty-pane .eicon{font-size:2.8rem}
+    .empty-pane p{font-size:.82rem;max-width:220px;line-height:1.6}
+    .overlay{display:none;position:fixed;inset:0;background:#000000aa;z-index:100;align-items:center;justify-content:center}
+    .overlay.open{display:flex}
+    .dialog{background:#111827;border:1px solid #374151;border-radius:14px;padding:22px;width:430px;max-width:95vw;display:flex;flex-direction:column;gap:11px}
+    .dialog h2{font-size:.95rem;font-weight:700;color:#a78bfa}
+    .dialog label{font-size:.75rem;color:#64748b;margin-bottom:3px;display:block}
+    .dialog input,.dialog textarea,.dialog select{width:100%;background:#0a0d14;border:1px solid #1f2937;border-radius:7px;color:#e2e8f0;padding:8px 11px;font-size:.82rem;outline:none}
+    .dialog textarea{resize:vertical;min-height:56px}
+    .drow{display:flex;gap:10px}.drow>div{flex:1}
+    .dfooter{display:flex;justify-content:flex-end;gap:10px}
+    button{border:none;border-radius:8px;padding:8px 18px;font-size:.82rem;font-weight:600;cursor:pointer;transition:background .15s}
+    .btn-p{background:#7c3aed;color:#fff}.btn-p:hover{background:#6d28d9}
+    .btn-g{background:transparent;border:1px solid #374151;color:#94a3b8}.btn-g:hover{border-color:#7c3aed;color:#e2e8f0}
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>\U0001f9e0 Gemini Meeting Agent</h1>
+  <div class="pill"><div class="dot" id="sdot"></div><span id="stxt">Idle</span></div>
+  <div class="spacer"></div>
+  <button class="cfg-btn" onclick="openCfg()">\u2699 Config</button>
+</header>
+
+<aside>
+  <div class="mic-sec">
+    <div class="orb-wrap" id="orbWrap">
+      <div class="ring r1"></div><div class="ring r2"></div>
+      <div class="orb" id="orb" onclick="toggle()">\U0001f399\ufe0f</div>
+    </div>
+    <div class="timer" id="timer">0:00</div>
+    <div class="lv-wrap"><div class="lv-bar" id="lvBar"></div></div>
+    <div class="orb-label" id="orbLbl">Click mic to start</div>
+  </div>
+  <div class="log-sec">
+    <h3>Activity</h3>
+    <div class="log" id="log"></div>
+  </div>
+</aside>
+
+<main>
+  <div class="tabs">
+    <div class="tab active" onclick="tab('notes',this)">Meeting Notes</div>
+    <div class="tab" onclick="tab('tx',this)">Transcript</div>
+  </div>
+
+  <div class="pane active" id="pane-notes">
+    <div class="empty-pane" id="emptyN">
+      <div class="eicon">\U0001f399\ufe0f</div>
+      <p>Start recording \u2014 notes appear as you speak</p>
+    </div>
+    <div id="notesBody" style="display:none;flex-direction:column;gap:12px">
+      <div id="topicWrap" style="display:none">
+        <div class="topic-pill">\U0001f4cc <span id="topicTxt"></span></div>
+      </div>
+      <div class="card"><h4>\u2705 Decisions</h4><div class="chip-list" id="decisions"><span class="none">None yet</span></div></div>
+      <div class="card"><h4>\U0001f4cc Action Items</h4><div class="chip-list" id="actions"><span class="none">None yet</span></div></div>
+      <div class="card"><h4>\u2753 Open Questions</h4><div class="chip-list" id="questions"><span class="none">None yet</span></div></div>
+      <div id="respWrap" style="display:none">
+        <div class="rbubble">
+          <div class="badge">\U0001f916 Agent wants to speak</div>
+          <div class="rtext" id="respTxt"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pane" id="pane-tx">
+    <div class="empty-pane" id="emptyT">
+      <div class="eicon">\U0001f4ac</div>
+      <p>Live transcript appears here as Gemini processes your audio</p>
+    </div>
+    <div class="tx-feed" id="txFeed"></div>
+  </div>
+</main>
+
+<div class="overlay" id="cfgOverlay" onclick="bgClose(event)">
+  <div class="dialog">
+    <h2>\u2699 Session Config</h2>
+    <div><label>Backend URL</label><input id="cfgUrl" value="http://localhost:3001"/></div>
+    <div><label>Auth Token</label><input id="cfgToken" value="44c08f4f6aec0eba0f92ce1d1853b3d90df539bc3ed84cb96b1972f2dd80039c"/></div>
+    <div><label>Meeting Objective</label><textarea id="cfgObj">Discuss the Q1 product roadmap and assign action items.</textarea></div>
+    <div class="drow">
+      <div><label>Mode</label>
+        <select id="cfgMode">
+          <option value="notes_only">notes_only</option>
+          <option value="suggest" selected>suggest</option>
+          <option value="auto_speak">auto_speak</option>
+        </select>
+      </div>
+      <div><label>Tone</label>
+        <select id="cfgTone">
+          <option value="professional" selected>professional</option>
+          <option value="casual">casual</option>
+          <option value="concise">concise</option>
+        </select>
+      </div>
+    </div>
+    <div><label>Prep Notes</label><textarea id="cfgPrep">Feature X launch planned for end of Q1. Budget is approved.</textarea></div>
+    <div class="dfooter">
+      <button class="btn-g" onclick="closeCfg()">Cancel</button>
+      <button class="btn-p" onclick="closeCfg()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let rec=false,sid=null,ws=null,actx=null,proc=null,stream=null,poll=null,ticker=null,t0=0,seen=new Set(),lastCount=0;
+
+const g=id=>document.getElementById(id);
+const cfgV=id=>g(id).value.trim();
+const base=()=>cfgV('cfgUrl').replace(/\\/$/,'');
+const wsBase=()=>base().replace(/^http/,'ws');
+const hdrs=()=>({'Content-Type':'application/json','X-Service-Token':cfgV('cfgToken')});
+
+function openCfg(){g('cfgOverlay').classList.add('open')}
+function closeCfg(){g('cfgOverlay').classList.remove('open')}
+function bgClose(e){if(e.target===e.currentTarget)closeCfg()}
+
+function tab(id,el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  g('pane-'+id).classList.add('active');
+}
+
+function log(cls,msg){
+  const b=g('log'),now=new Date().toTimeString().slice(0,8);
+  b.innerHTML+=`<div><span class="ts">${now} </span><span class="${cls}">${msg}</span></div>`;
+  b.scrollTop=b.scrollHeight;
+}
+function setS(cls,msg){g('sdot').className='dot '+cls;g('stxt').textContent=msg}
+
+function startTick(){t0=Date.now();ticker=setInterval(()=>{const s=Math.floor((Date.now()-t0)/1000);g('timer').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0')},500)}
+function stopTick(){clearInterval(ticker);ticker=null}
+
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+async function toggle(){rec?await stop():await start()}
+
+async function start(){
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false})}
+  catch(e){log('err','Mic denied: '+e.message);return}
+
+  sid=crypto.randomUUID();seen.clear();lastCount=0;clearAll();
+  setS('working','Starting\u2026');log('ok','Mic ready');
+
+  try{
+    const r=await fetch(`${base()}/brain/sessions/${sid}/start`,{method:'POST',headers:hdrs(),body:JSON.stringify({
+      mode:cfgV('cfgMode'),user_tone:cfgV('cfgTone'),meeting_objective:cfgV('cfgObj'),
+      prep_notes:cfgV('cfgPrep'),allowed_topics:[],
+      response_policy:{min_confidence:.5,max_speak_seconds:20,cooldown_ms:5000}
+    })});
+    if(!r.ok)throw new Error(`Start failed: ${r.status} ${await r.text()}`);
+    log('ok',`Session ${sid.slice(0,8)}\u2026 created`);
+  }catch(e){log('err',e.message);setS('','Idle');stream.getTracks().forEach(t=>t.stop());stream=null;return}
+
+  try{
+    ws=new WebSocket(`${wsBase()}/brain/sessions/${sid}/audio`);
+    ws.binaryType='arraybuffer';
+    await new Promise((res,rej)=>{
+      ws.onopen=res;
+      ws.onerror=()=>rej(new Error('WebSocket failed to connect'));
+      setTimeout(()=>rej(new Error('WebSocket timeout')),5000);
+    });
+    log('ok','WebSocket open');
+  }catch(e){log('err',e.message);setS('','Idle');stream.getTracks().forEach(t=>t.stop());stream=null;return}
+
+  actx=new AudioContext({sampleRate:16000});
+  const src=actx.createMediaStreamSource(stream);
+  proc=actx.createScriptProcessor(3200,1,1);
+  proc.onaudioprocess=e=>{
+    if(!rec||!ws||ws.readyState!==1)return;
+    const f=e.inputBuffer.getChannelData(0);
+    // level meter
+    let s=0;for(let i=0;i<f.length;i++)s+=f[i]*f[i];
+    g('lvBar').style.width=Math.min(Math.sqrt(s/f.length)*400,100)+'%';
+    // float32 -> int16 PCM
+    const p=new Int16Array(f.length);
+    for(let i=0;i<f.length;i++){const v=Math.max(-1,Math.min(1,f[i]));p[i]=v<0?v*0x8000:v*0x7fff}
+    ws.send(p.buffer);
+  };
+  src.connect(proc);proc.connect(actx.destination);
+
+  rec=true;
+  g('orbWrap').classList.add('rec');
+  g('orb').textContent='⏹️';
+  g('orbLbl').textContent='Recording\u2026 click to stop';
+  setS('live','Recording');
+  startTick();
+  log('ok','Streaming to Gemini \u2014 notes update every ~4 s');
+  poll=setInterval(fetchNotes,4000);
+}
+
+async function stop(){
+  rec=false;
+  clearInterval(poll);poll=null;
+  stopTick();
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+  if(proc){proc.disconnect();proc=null}
+  if(actx){await actx.close();actx=null}
+  if(ws&&ws.readyState===1){
+    ws.send(JSON.stringify({type:'stop'}));
+    await sleep(300);
+    ws.close();ws=null;
+  }
+  g('orbWrap').classList.remove('rec');
+  g('orb').textContent='🎙️';
+  g('orbLbl').textContent='Click mic to start';
+  g('lvBar').style.width='0%';
+  setS('working','Processing final audio\u2026');
+  log('ok','Stopped \u2014 fetching final notes\u2026');
+  await sleep(5000);
+  await fetchNotes();
+  setS('ok','Done ✓');
+  log('ok','Session complete');
+}
+
+async function fetchNotes(){
+  if(!sid)return;
+  try{
+    const r=await fetch(`${base()}/brain/sessions/${sid}/notes`,{headers:hdrs()});
+    if(!r.ok)return;
+    const d=await r.json();
+    if(d.transcript_count>lastCount){
+      log('ok',`+${d.transcript_count-lastCount} new segment(s)`);
+      lastCount=d.transcript_count;
+    }
+    render(d);
+  }catch(_){}
+}
+
+function render(d){
+  const ms=d.meeting_state||{};
+  const hasTx=(d.transcript||[]).length>0;
+  const hasNotes=(ms.decisions?.length>0)||(ms.action_items?.length>0)||(ms.open_questions?.length>0)||ms.current_topic;
+  if(!hasNotes&&!hasTx)return;
+
+  if(hasNotes){
+    g('emptyN').style.display='none';
+    const nb=g('notesBody');nb.style.display='flex';nb.style.flexDirection='column';
+    if(ms.current_topic){g('topicWrap').style.display='block';g('topicTxt').textContent=ms.current_topic}
+    chips('decisions',ms.decisions,false);
+    chips('questions',ms.open_questions,false);
+    chips('actions',(ms.action_items||[]).map(a=>`${a.owner?a.owner+': ':''}${a.description}${a.due_hint?' ('+a.due_hint+')':''}`),true);
+    if(d.pending_response){g('respWrap').style.display='block';g('respTxt').textContent=d.pending_response.text}
+  }
+
+  const feed=g('txFeed');
+  (d.transcript||[]).forEach(seg=>{
+    if(seen.has(seg.segment_id))return;
+    seen.add(seg.segment_id);
+    g('emptyT').style.display='none';
+    const el=document.createElement('div');el.className='tx';
+    el.innerHTML=`<div class="spk">${seg.speaker_label||'Participant'}</div>`+
+      `<div class="txt">${seg.text}</div>`+
+      `<div class="tt">${(seg.start_ms/1000).toFixed(1)}s</div>`;
+    feed.appendChild(el);feed.scrollTop=feed.scrollHeight;
+  });
+}
+
+function chips(id,items,isAct){
+  const el=g(id);
+  if(!items||!items.length){el.innerHTML='<span class="none">None yet</span>';return}
+  el.innerHTML=items.map(i=>`<span class="chip${isAct?' act':''}">${i}</span>`).join('');
+}
+
+function clearAll(){
+  g('emptyN').style.display='flex';
+  g('notesBody').style.display='none';
+  g('emptyT').style.display='flex';
+  g('txFeed').innerHTML='';
+  ['decisions','actions','questions'].forEach(id=>g(id).innerHTML='<span class="none">None yet</span>');
+  g('topicWrap').style.display='none';
+  g('respWrap').style.display='none';
+  g('timer').textContent='0:00';
+  g('log').innerHTML='';
+}
+</script>
+</body>
+</html>
+"""
+
+out = pathlib.Path('/Users/isham/project/HooHacksv2/conversational-meeting-bot/gemini-backend/tests/ui_test.html')
+out.write_text(HTML, encoding='utf-8')
+print(f"Written {out.stat().st_size} bytes, {HTML.count(chr(10))} lines")

@@ -1,7 +1,86 @@
-Chat prompt:
+# Zoom Meeting Gateway
 
-1) Meeting Integration Engineer
-Title: Zoom Meeting Gateway
+Transport layer for AI meeting participation. Joins a Zoom meeting via a URL + optional passcode, streams inbound audio to the Gemini Intelligence Service, and injects synthesised speech from the ElevenLabs Voice Runtime back into the meeting.
+
+---
+
+## Quick start
+
+```bash
+cd zoom-gateway
+cp .env.example .env          # fill in INTERNAL_SERVICE_SECRET
+npm install
+npm run dev                   # ts-node-dev, hot-reloads
+```
+
+## Credentials needed (add to `.env`)
+
+| Variable | Where to get it |
+|---|---|
+| `INTERNAL_SERVICE_SECRET` | `openssl rand -hex 32` — shared with all other services |
+
+No Zoom SDK keys are needed: the gateway joins via the Zoom **web client** (browser automation).
+
+---
+
+## API
+
+### REST (all routes require `x-internal-token: <INTERNAL_SERVICE_SECRET>`)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/sessions/start` | Start a bot session (returns 202 immediately; bot joins async) |
+| `POST` | `/sessions/:id/stop` | Stop and leave the meeting |
+| `GET` | `/sessions/:id/status` | Get current session state |
+| `GET` | `/sessions` | List all active sessions |
+| `GET` | `/health` | Liveness check (no auth) |
+
+#### `POST /sessions/start` body
+
+```jsonc
+{
+  "meeting_session_id": "uuid-from-control-backend",  // required
+  "user_id": "user-uuid",                              // required
+  "meeting_url": "https://zoom.us/j/1234567890",       // required
+  "passcode": "123456",                                // optional numeric passcode
+  "bot_display_name": "AI Assistant"                   // optional
+}
+```
+
+### WebSockets (auth via `?token=<INTERNAL_SERVICE_SECRET>`)
+
+| Path | Direction | Consumer |
+|---|---|---|
+| `WS /sessions/:id/audio-in` | Gateway → client | Gemini Intelligence Service |
+| `WS /sessions/:id/audio-out` | Client → Gateway | ElevenLabs Voice Runtime |
+
+**Audio wire format**
+- `audio-in` packets: `[8 bytes BigInt64LE timestamp ms]` + `[N × 2 bytes int16 PCM, mono, 16 kHz]`
+- `audio-out` frames: raw `int16 PCM, little-endian, 16 kHz mono`
+
+### Canonical session events (emitted internally via `gatewayEmitter`)
+
+`session.created` · `session.joining` · `session.joined` · `session.failed` · `session.reconnecting` · `session.ended` · `audio.chunk.received` · `audio.chunk.played`
+
+---
+
+## How it fits into the system
+
+```
+Control Backend  ──POST /sessions/start──►  Zoom Gateway
+                                                │
+                                    Puppeteer Chrome joins Zoom web client
+                                                │
+Gemini Service  ◄──WS /audio-in (PCM)──────────┤
+                                                │
+ElevenLabs      ───WS /audio-out (PCM)─────────►│
+                                                │
+                                    Audio injected into meeting mic
+```
+
+---
+
+## Original engineer brief
 
 Mission:
 Build the service that gets the agent into a Zoom meeting, captures meeting audio, and plays synthesized audio back into the call. This service is the transport layer for meeting participation. It should be reliable, low-latency, and dumb in the best way possible: it should not decide what the agent says, and it should not do LLM reasoning.

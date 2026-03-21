@@ -50,7 +50,7 @@ export async function POST(_req: Request, { params }: Params) {
     .single();
 
   // Fire-and-forget: tell the Meeting Gateway to join
-  const gwUrl = process.env.MEETING_GATEWAY_URL ?? "http://localhost:4001";
+  const gwUrl = process.env.MEETING_GATEWAY_URL ?? "http://localhost:3001";
   callService(gwUrl, "/sessions/start", {
     method: "POST",
     body: JSON.stringify({

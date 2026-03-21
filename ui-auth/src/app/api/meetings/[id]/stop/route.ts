@@ -32,11 +32,11 @@ export async function POST(_req: Request, { params }: Params) {
     .eq("id", id);
 
   // Tell Meeting Gateway to stop
-  const gwUrl = process.env.MEETING_GATEWAY_URL ?? "http://localhost:4001";
+  const gwUrl = process.env.MEETING_GATEWAY_URL ?? "http://localhost:3001";
   callService(gwUrl, `/sessions/${id}/stop`, { method: "POST" }).catch(() => {});
 
   // Tell voice runtime to cancel any active speech
-  const vrUrl = process.env.VOICE_RUNTIME_URL ?? "http://localhost:4003";
+  const vrUrl = process.env.VOICE_RUNTIME_URL ?? "http://localhost:8083";
   callService(vrUrl, `/runtime/sessions/${id}/cancel`, { method: "POST" }).catch(
     () => {}
   );

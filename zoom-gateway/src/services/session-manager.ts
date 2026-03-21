@@ -3,6 +3,7 @@ import WebSocket from 'ws';
 import { config } from '../config';
 import { gatewayEmitter } from '../events/emitter';
 import { ZoomJoiner } from './zoom-joiner';
+import { geminiBrainClient } from './gemini-brain-client';
 import { parseZoomUrl } from '../utils/zoom-url';
 import type {
   Session,
@@ -55,6 +56,7 @@ class SessionManager {
     const joiner = new ZoomJoiner(session.id, {
       onAudioChunk: (int16Array) => {
         this.broadcastAudioChunk(session.id, int16Array);
+        geminiBrainClient.sendAudio(session.id, int16Array);
       },
       onStatusChange: (status, error) => {
         this.updateStatus(session.id, status, error);
@@ -82,6 +84,9 @@ class SessionManager {
     active.session.ended_at = new Date();
     this.updateStatus(sessionId, 'ended');
     this.sessions.delete(sessionId);
+
+    // Stop gemini brain session (best-effort)
+    geminiBrainClient.stopSession(sessionId).catch(() => {});
   }
 
   getSession(sessionId: string): Session | undefined {
@@ -134,6 +139,13 @@ class SessionManager {
     await joiner.join(session.meeting_url, session.bot_display_name, passcode);
     const active = this.sessions.get(session.id);
     if (active) active.session.joined_at = new Date();
+
+    // Start Gemini brain session now that we've joined the meeting
+    geminiBrainClient.startSession(session.id, {
+      meetingObjective: `Attend and take notes for meeting at ${session.meeting_url}`,
+    }).catch((err: unknown) => {
+      console.warn(`[SessionManager] Gemini brain start failed for ${session.id}:`, err);
+    });
   }
 
   // ── Private: audio broadcast ──────────────────────────────────────────────
@@ -204,7 +216,7 @@ class SessionManager {
           error: session.error,
         },
         {
-          headers: { 'x-internal-token': config.internalServiceSecret },
+          headers: { Authorization: `Bearer ${config.internalServiceSecret}` },
           timeout: 3_000,
         },
       );

@@ -8,6 +8,7 @@ Called only from the /brain/sessions/:id/respond endpoint after approval.
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 import httpx
 
@@ -39,24 +40,26 @@ class VoiceClient:
         session_id: str,
         text: str,
         max_speak_seconds: float = 15.0,
+        voice_profile_id: Optional[str] = None,
     ) -> None:
         """
-        POST text to the Voice Runtime to be spoken aloud in the meeting.
+        Enqueue text for TTS synthesis and playback in the meeting.
 
-        The Voice Runtime handles TTS generation and audio playback scheduling.
+        The voice-cloning service synthesises audio and delivers it to the
+        Meeting Gateway via WebSocket at /sessions/:id/audio-out.
         """
+        body: dict = {"text": text, "priority": 1}
+        if voice_profile_id:
+            body["voice_profile_id"] = voice_profile_id
+
         try:
             response = await self._client.post(
-                "/voice/speak",
-                json={
-                    "session_id": session_id,
-                    "text": text,
-                    "max_speak_seconds": max_speak_seconds,
-                },
+                f"/runtime/sessions/{session_id}/speak",
+                json=body,
             )
             response.raise_for_status()
             logger.info(
-                "Voice speak dispatched session_id=%s chars=%d", session_id, len(text)
+                "Voice speak enqueued session_id=%s chars=%d", session_id, len(text)
             )
         except httpx.HTTPStatusError as exc:
             logger.error(

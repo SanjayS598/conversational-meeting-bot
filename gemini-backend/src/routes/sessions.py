@@ -85,6 +85,7 @@ async def start_session(
         prep_notes=body.prep_notes,
         allowed_topics=body.allowed_topics,
         response_policy=body.response_policy,
+        voice_profile_id=body.voice_profile_id,
     )
 
     existing = await session_manager.get(final_id)
@@ -297,6 +298,7 @@ async def respond(
                 session_id=session_id,
                 text=pending.text,
                 max_speak_seconds=pending.max_speak_seconds,
+                voice_profile_id=session.config.voice_profile_id,
             )
             spoken = True
         except VoiceClientError as exc:

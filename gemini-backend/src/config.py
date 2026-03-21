@@ -29,14 +29,14 @@ class Settings(BaseSettings):
 
     # ── Control Backend ────────────────────────────────────────────────────────
     backend_url: str = Field(
-        default="http://localhost:4000",
-        description="Control Backend base URL",
+        default="http://localhost:3000",
+        description="Control Backend (ui-auth Next.js) base URL",
     )
 
-    # ── Voice Runtime ──────────────────────────────────────────────────────────
+    # ── Voice Runtime ──────────────────────────────────────────────────────────────
     voice_runtime_url: str = Field(
-        default="http://localhost:5000",
-        description="ElevenLabs Voice Runtime base URL",
+        default="http://localhost:8083",
+        description="Voice Runtime (voice-cloning) base URL",
     )
 
     # ── Redis ─────────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     )
 
     # ── Service ────────────────────────────────────────────────────────────────
-    port: int = Field(default=3001, description="HTTP listen port")
+    port: int = Field(default=3002, description="HTTP listen port")
     log_level: str = Field(default="info", description="Logging level")
 
 

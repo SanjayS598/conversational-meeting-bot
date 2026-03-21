@@ -7,16 +7,21 @@ export class ControlBackendAdapter {
   async emit(eventType, payload) {
     if (config.controlBackendBaseUrl) {
       try {
-        await fetch(`${config.controlBackendBaseUrl}/api/internal/voice-events`, {
+        // Map voice-cloning events to the ui-auth /api/internal/events format
+        const sessionId = payload.session_id || payload.session?.id || null;
+        await fetch(`${config.controlBackendBaseUrl}/api/internal/events`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${config.internalBackendAuthToken}`
           },
           body: JSON.stringify({
-            event_type: eventType,
-            payload,
-            created_at: nowIso()
+            type: "agent.event",
+            payload: {
+              session_id: sessionId,
+              event_type: eventType,
+              payload_json: payload
+            }
           })
         });
       } catch {

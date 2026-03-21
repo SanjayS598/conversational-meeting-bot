@@ -96,6 +96,7 @@ class SessionConfig(BaseModel):
     prep_notes: Optional[str] = None
     allowed_topics: list[str] = Field(default_factory=list)
     response_policy: ResponsePolicyConfig = Field(default_factory=ResponsePolicyConfig)
+    voice_profile_id: Optional[str] = None  # ElevenLabs voice profile for TTS
 
 
 class SessionState(BaseModel):
@@ -118,6 +119,7 @@ class StartSessionRequest(BaseModel):
     prep_notes: Optional[str] = None
     allowed_topics: list[str] = Field(default_factory=list)
     response_policy: ResponsePolicyConfig = Field(default_factory=ResponsePolicyConfig)
+    voice_profile_id: Optional[str] = None  # ElevenLabs voice profile for TTS
 
 
 class StartSessionResponse(BaseModel):

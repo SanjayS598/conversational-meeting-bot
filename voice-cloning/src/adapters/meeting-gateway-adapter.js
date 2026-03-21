@@ -12,33 +12,55 @@ export class MeetingGatewayAdapter {
     durationMs,
     priority
   }) {
-    const payload = {
-      session_id: sessionId,
-      job_id: jobId,
-      audio_ref: audioRef,
-      content_type: contentType,
-      duration_ms: durationMs,
-      priority,
-      delivered_at: nowIso()
-    };
-
     if (config.meetingGatewayBaseUrl) {
       try {
-        await fetch(`${config.meetingGatewayBaseUrl}/internal/sessions/${sessionId}/audio-out`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${config.internalBackendAuthToken}`
-          },
-          body: JSON.stringify(payload)
+        return await this._deliverViaWebSocket({
+          sessionId,
+          jobId,
+          audioRef,
+          contentType,
+          durationMs
         });
-        return { transport: "http", accepted: true };
-      } catch {
-        return this.writeLocalFallback(payload);
+      } catch (err) {
+        console.error(`[MeetingGatewayAdapter] WebSocket delivery failed for ${sessionId}:`, err.message);
+        return this.writeLocalFallback({ sessionId, jobId, audioRef, contentType, durationMs, priority });
       }
     }
 
-    return this.writeLocalFallback(payload);
+    return this.writeLocalFallback({ sessionId, jobId, audioRef, contentType, durationMs, priority });
+  }
+
+  async _deliverViaWebSocket({ sessionId, jobId, audioRef, contentType, durationMs }) {
+    // Convert http:// base URL to ws:// for WebSocket connection
+    const wsBase = config.meetingGatewayBaseUrl
+      .replace(/^http:/, "ws:")
+      .replace(/^https:/, "wss:");
+    const token = config.internalBackendAuthToken;
+    const url = `${wsBase}/sessions/${sessionId}/audio-out?token=${encodeURIComponent(token)}`;
+
+    const audioData = fs.readFileSync(audioRef);
+
+    // Node.js >=22 has native WebSocket support
+    return new Promise((resolve, reject) => {
+      const ws = new globalThis.WebSocket(url);
+      ws.binaryType = "nodebuffer";
+      const timeoutHandle = setTimeout(() => {
+        ws.close();
+        reject(new Error("WebSocket delivery timed out"));
+      }, 10_000);
+
+      ws.addEventListener("open", () => {
+        ws.send(audioData);
+        clearTimeout(timeoutHandle);
+        ws.close();
+        resolve({ transport: "websocket", accepted: true });
+      });
+
+      ws.addEventListener("error", (event) => {
+        clearTimeout(timeoutHandle);
+        reject(new Error(event.message || "WebSocket error"));
+      });
+    });
   }
 
   writeLocalFallback(payload) {
@@ -58,3 +80,4 @@ export class MeetingGatewayAdapter {
     return { transport: "local-fallback", accepted: true, filePath };
   }
 }
+

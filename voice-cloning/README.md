@@ -197,6 +197,15 @@ Creates the ElevenLabs voice clone in live mode, or a mock provider voice in moc
 
 Returns the stored `VoiceProfile`.
 
+### `GET /users/:user_id/voices`
+
+Returns all stored voice profiles for one user.
+
+### `GET /users/:user_id/voices/default`
+
+Returns the most recently updated ready voice profile for that user.
+This is the easiest lookup endpoint for teammate services.
+
 ### `POST /voices/preview`
 
 ```json
@@ -216,6 +225,35 @@ Returns the stored `VoiceProfile`.
   "urgent": false
 }
 ```
+
+### `POST /internal/runtime/sessions/:id/respond`
+
+This is the simplest teammate-facing speech endpoint.
+Use it from the intelligence service or control backend.
+
+If you already know the exact voice profile:
+
+```json
+{
+  "voice_profile_id": "voice_...",
+  "text": "Thanks everyone. I agree with the proposed next step.",
+  "priority": 5,
+  "urgent": false
+}
+```
+
+If you only know the app user:
+
+```json
+{
+  "user_id": "user_123",
+  "text": "Thanks everyone. I agree with the proposed next step.",
+  "priority": 5,
+  "urgent": false
+}
+```
+
+In the `user_id` form, the service automatically resolves that user's default ready voice profile.
 
 ### `POST /runtime/sessions/:id/cancel`
 
@@ -251,6 +289,170 @@ Returns the current runtime state and queued jobs for that session.
 - speaker-detection-driven interrupt input from the meeting gateway
 
 Those are left as placeholders so you can finish your part without blocking on the other teams.
+
+## Recommended Teammate Contract
+
+For your hackathon team, this is the cleanest contract to share:
+
+1. The UI/backend service owns `user_id`.
+2. The voice service owns `voice_profile_id` and ElevenLabs `provider_voice_id`.
+3. The intelligence service should usually call:
+
+```http
+POST /internal/runtime/sessions/:session_id/respond
+```
+
+with:
+
+```json
+{
+  "user_id": "user_123",
+  "text": "Short spoken reply text here.",
+  "priority": 5,
+  "urgent": false
+}
+```
+
+That keeps the intelligence service independent from your internal voice-profile storage.
+
+## Teammate Handoff
+
+Share this section directly with the backend and intelligence teammates.
+
+### Base rules
+
+- every request should include `Authorization: Bearer <INTERNAL_BACKEND_AUTH_TOKEN>`
+- all request bodies are JSON
+- the voice service owns `voice_profile_id` and ElevenLabs `provider_voice_id`
+- other services should prefer `user_id` over `voice_profile_id` unless they have a specific reason not to
+
+### 1. Resolve the default ready voice for a user
+
+Request:
+
+```http
+GET /users/:user_id/voices/default
+```
+
+Example response:
+
+```json
+{
+  "id": "voice_3fbca20e-b6a1-45d1-bb92-541285c3f7ae",
+  "user_id": "user_123",
+  "provider": "elevenlabs",
+  "provider_voice_id": "3L99aUMNzwe9uZcZKQu1",
+  "display_name": "Nathan Live Clone",
+  "status": "ready",
+  "sample_count": 1,
+  "consent_confirmed": true,
+  "created_at": "2026-03-21T21:55:00.000Z",
+  "updated_at": "2026-03-21T21:56:00.000Z"
+}
+```
+
+### 2. Request a spoken response for a meeting session
+
+Request:
+
+```http
+POST /internal/runtime/sessions/:session_id/respond
+```
+
+Recommended request body:
+
+```json
+{
+  "user_id": "user_123",
+  "text": "Thanks everyone. I agree with the proposed next step.",
+  "priority": 5,
+  "urgent": false
+}
+```
+
+Alternate request body if the caller already knows the exact voice profile:
+
+```json
+{
+  "voice_profile_id": "voice_3fbca20e-b6a1-45d1-bb92-541285c3f7ae",
+  "text": "Thanks everyone. I agree with the proposed next step.",
+  "priority": 5,
+  "urgent": false
+}
+```
+
+Example success response:
+
+```json
+{
+  "job_id": "speech_b11729d2-1b59-42e2-9e86-120781855cac",
+  "session_id": "meeting_123",
+  "voice_profile_id": "voice_3fbca20e-b6a1-45d1-bb92-541285c3f7ae",
+  "text": "Thanks everyone. I agree with the proposed next step.",
+  "priority": 5,
+  "urgent": false,
+  "state": "queued",
+  "audio_ref": null,
+  "created_at": "2026-03-21T22:00:00.000Z"
+}
+```
+
+### 3. Poll runtime state for that meeting session
+
+Request:
+
+```http
+GET /runtime/sessions/:session_id/state
+```
+
+Example response:
+
+```json
+{
+  "session_id": "meeting_123",
+  "active_job_id": null,
+  "queue_depth": 0,
+  "is_playing": false,
+  "last_interrupt_at": null,
+  "last_playback_ended_at": "2026-03-21T22:00:05.000Z",
+  "last_delivery_transport": "local-fallback",
+  "queued_jobs": []
+}
+```
+
+### 4. Cancel the current or a specific speech job
+
+Request:
+
+```http
+POST /runtime/sessions/:session_id/cancel
+```
+
+Cancel the active job:
+
+```json
+{
+  "reason": "Another participant started speaking."
+}
+```
+
+Cancel a specific queued job:
+
+```json
+{
+  "job_id": "speech_ab086e17-1821-4a3f-8285-2562ae2ca404",
+  "reason": "This response is no longer needed."
+}
+```
+
+### Suggested ownership split
+
+- control backend:
+  calls voice enrollment routes, stores returned voice profile metadata, and owns the user-facing settings pages
+- intelligence service:
+  calls `POST /internal/runtime/sessions/:session_id/respond` with `user_id + text`
+- zoom gateway:
+  later receives the generated audio handoff when `MEETING_GATEWAY_BASE_URL` is wired
 
 ## Example Local Flow
 

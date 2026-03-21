@@ -120,6 +120,16 @@ export class RuntimeService {
     return job;
   }
 
+  async enqueueSpeechForUser(sessionId, input) {
+    requireFields(input, ["user_id", "text"]);
+    const profile = this.voiceProfileService.getDefaultReadyProfileForUser(input.user_id);
+
+    return this.enqueueSpeech(sessionId, {
+      ...input,
+      voice_profile_id: profile.id
+    });
+  }
+
   async cancelSpeech(sessionId, input = {}) {
     const runtimeState = this.getState(sessionId);
     const db = this.store.read();

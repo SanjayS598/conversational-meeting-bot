@@ -45,6 +45,22 @@ export class VoiceProfileService {
     return this.#getProfileOrThrow(profileId);
   }
 
+  getProfilesByUser(userId) {
+    return this.store.read().voiceProfiles.filter((item) => item.user_id === userId);
+  }
+
+  getDefaultReadyProfileForUser(userId) {
+    const profiles = this.getProfilesByUser(userId)
+      .filter((item) => ["ready", "verification_required"].includes(item.status))
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+
+    if (profiles.length === 0) {
+      throw httpError(404, `No ready voice profile found for user: ${userId}`);
+    }
+
+    return profiles[0];
+  }
+
   addSample(profileId, input) {
     requireFields(input, ["sample_name", "audio_base64"]);
     const profile = this.#getProfileOrThrow(profileId);

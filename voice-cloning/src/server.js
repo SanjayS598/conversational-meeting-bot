@@ -53,6 +53,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const userVoicesMatch = pathname.match(/^\/users\/([^/]+)\/voices$/);
+    if (req.method === "GET" && userVoicesMatch) {
+      const profiles = voiceProfileService.getProfilesByUser(userVoicesMatch[1]);
+      sendJson(res, 200, { items: profiles });
+      return;
+    }
+
+    const userDefaultVoiceMatch = pathname.match(/^\/users\/([^/]+)\/voices\/default$/);
+    if (req.method === "GET" && userDefaultVoiceMatch) {
+      const profile = voiceProfileService.getDefaultReadyProfileForUser(userDefaultVoiceMatch[1]);
+      sendJson(res, 200, profile);
+      return;
+    }
+
     if (req.method === "POST" && pathname === "/voices/enroll") {
       const body = await parseJsonBody(req);
       const profile = voiceProfileService.createEnrollment(body);
@@ -93,6 +107,16 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && speakMatch) {
       const body = await parseJsonBody(req);
       const job = await runtimeService.enqueueSpeech(speakMatch[1], body);
+      sendJson(res, 202, job);
+      return;
+    }
+
+    const respondMatch = pathname.match(/^\/internal\/runtime\/sessions\/([^/]+)\/respond$/);
+    if (req.method === "POST" && respondMatch) {
+      const body = await parseJsonBody(req);
+      const job = body.voice_profile_id
+        ? await runtimeService.enqueueSpeech(respondMatch[1], body)
+        : await runtimeService.enqueueSpeechForUser(respondMatch[1], body);
       sendJson(res, 202, job);
       return;
     }

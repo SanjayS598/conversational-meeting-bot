@@ -1,0 +1,15 @@
+{
+  "name": "voice-cloning-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Voice cloning and runtime orchestration service for the conversational meeting bot hackathon project.",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "check": "node --check src/server.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

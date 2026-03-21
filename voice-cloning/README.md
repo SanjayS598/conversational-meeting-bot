@@ -1,173 +1,306 @@
-Chat prompt:
+# Voice Cloning Service
 
-3) Voice Engineer
-Title: ElevenLabs Voice Runtime and Cloning Service
+This folder now contains a self-contained voice runtime for part 3 of your hackathon project:
 
-Mission:
-Build the personal voice system. This service is responsible for voice enrollment, storing cloned voice metadata, generating TTS in the user’s cloned voice, and scheduling/canceling speech playback so the meeting agent sounds like the user.
+- voice enrollment
+- sample storage
+- ElevenLabs instant voice cloning
+- TTS generation in the cloned voice
+- single-session speech queueing
+- speech cancel and interrupt handling
+- placeholder delivery to the meeting gateway
+- placeholder event delivery to the control backend
 
-Why this component exists:
-This is the feature that makes the project special. ElevenLabs documents Instant Voice Cloning through its API and also provides API-key-based speech generation. Build this component as a dedicated provider layer so personal voice is not mixed into Gemini logic. 
+It runs in two modes:
 
-Credentials needed:
+- live mode: real ElevenLabs API calls if `ELEVENLABS_API_KEY` is set
+- mock mode: no external API calls, but all routes, storage, queueing, and placeholder outputs still work
 
-ElevenLabs API key
+## API Keys And Secrets To Collect First
 
-Internal backend auth token
+For your voice component only, collect these before real integration:
 
-Main responsibilities:
+1. `ELEVENLABS_API_KEY`
+   Required for real voice cloning and real text-to-speech.
+   Official docs say ElevenLabs API requests authenticate with `xi-api-key`, and the clone flow uses `POST /v1/voices/add`.
+   Sources:
+   - https://elevenlabs.io/docs/api-reference
+   - https://elevenlabs.io/docs/cookbooks/text-to-speech
 
-Accept voice sample uploads or references from the app
+2. `INTERNAL_BACKEND_AUTH_TOKEN`
+   Required for service-to-service authentication inside your own project.
+   This is not vendor-issued. You generate it yourself and share it with your teammates' services.
 
-Create an ElevenLabs voice clone
+3. `CONTROL_BACKEND_BASE_URL`
+   Not an API key, but needed later so this service can send voice status events to the main backend.
+   Leave blank for now and the service will write local placeholder event files instead.
 
-Store cloned voice metadata and status
+4. `MEETING_GATEWAY_BASE_URL`
+   Not an API key, but needed later so this service can send synthesized audio to the Zoom gateway.
+   Leave blank for now and the service will write local placeholder delivery files instead.
 
-Accept reply text from Gemini Intelligence
+Optional later:
 
-Convert reply text into speech using the cloned voice
+5. `OPENAI_API_KEY`
+   Not required for this folder as implemented.
+   Only needed if your team later adds OpenAI-based audio features.
 
-Queue speech jobs so only one playback happens at a time
+## External Setup Before Coding
 
-Cancel or interrupt speech when meeting conditions change
+### 1. Set up ElevenLabs correctly
 
-Send final generated audio to Meeting Gateway
+What matters:
 
-Emit runtime events like clone created, speech started, speech canceled, speech failed
+- Use Instant Voice Cloning for the hackathon.
+- ElevenLabs help docs currently distinguish Instant Voice Cloning from Professional Voice Cloning.
+- Their docs and help center indicate Starter or higher is the practical tier for API usage and instant cloning.
 
-Inputs:
+Sources:
 
-user voice samples
+- https://help.elevenlabs.io/hc/en-us/sections/23821115950481-Voice-Cloning
+- https://elevenlabs.io/docs/cookbooks/text-to-speech
 
-user_id
+### 2. Create the ElevenLabs API key
 
-session_id
+Steps:
 
-reply text from Intelligence Service
+1. Sign in to ElevenLabs.
+2. Open the API or developer area in the dashboard.
+3. Create a new API key.
+4. Copy it immediately.
+5. Put it in `voice-cloning/.env` as `ELEVENLABS_API_KEY=...`
 
-voice style settings
+### 3. Prepare your voice samples correctly
 
-speaking priority / interruption state
+Practical sample guidance from ElevenLabs help docs:
 
-Outputs:
+- use one speaker only
+- keep background noise low
+- use clear speech
+- aim for roughly 1 to 2 minutes of usable audio
+- use consistent microphone quality
 
-cloned voice metadata
+Sources:
 
-voice status updates
+- https://help.elevenlabs.io/hc/en-us/articles/13440435385105-What-files-do-you-accept-for-voice-cloning
+- https://help.elevenlabs.io/hc/en-us/articles/13416206830097-Are-there-any-tips-to-get-good-quality-cloned-voices
 
-speech audio buffers or stream references
+### 4. Create the internal auth token
 
-playback runtime events
+Generate one shared service secret for your hackathon stack:
 
-Required API contract:
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
 
-POST /voices/enroll
+Put the generated value into:
 
-POST /voices/:id/sample
+- `voice-cloning/.env`
+- the control backend teammate's env
+- the zoom gateway teammate's env
 
-POST /voices/:id/finalize
+Use the same key name everywhere:
 
-GET /voices/:id
+```env
+INTERNAL_BACKEND_AUTH_TOKEN=your-long-random-secret
+```
 
-POST /voices/preview
+### 5. Ask your teammates for two integration URLs
 
-POST /runtime/sessions/:id/speak
+You do not need these to start local development:
 
-POST /runtime/sessions/:id/cancel
+- `CONTROL_BACKEND_BASE_URL`
+- `MEETING_GATEWAY_BASE_URL`
 
-GET /runtime/sessions/:id/state
+Until then, this service writes local JSON files into `storage/events/`.
 
-Canonical objects:
+## Local Setup
 
-VoiceProfile
+### 1. Create `.env`
 
-id
+Copy `.env.example` to `.env` and fill the values you already have.
 
-user_id
+Minimum example:
 
-provider
+```env
+PORT=8083
+ELEVENLABS_API_KEY=
+INTERNAL_BACKEND_AUTH_TOKEN=replace-me
+CONTROL_BACKEND_BASE_URL=
+MEETING_GATEWAY_BASE_URL=
+DEFAULT_TTS_MODEL=eleven_flash_v2_5
+DEFAULT_OUTPUT_FORMAT=mp3_44100_128
+DEFAULT_LANGUAGE_CODE=en
+MAX_SPEECH_CHARACTERS=500
+SPEECH_COOLDOWN_MS=5000
+```
 
-provider_voice_id
+If `ELEVENLABS_API_KEY` is blank, the service still runs in mock mode.
 
-status
+### 2. Start the service
 
-sample_count
+```powershell
+node src/server.js
+```
 
-consent_confirmed
+Or during development:
 
-created_at
+```powershell
+node --watch src/server.js
+```
 
-SpeechJob
+The service listens on `http://localhost:8083` by default.
 
-job_id
+## Route Contract
 
-session_id
+All routes require:
 
-text
+```http
+Authorization: Bearer <INTERNAL_BACKEND_AUTH_TOKEN>
+Content-Type: application/json
+```
 
-priority
+If `INTERNAL_BACKEND_AUTH_TOKEN` is blank, auth is skipped for local setup.
 
-state
+### `POST /voices/enroll`
 
-audio_ref
+```json
+{
+  "user_id": "user_123",
+  "display_name": "Nathan Voice",
+  "description": "Hackathon meeting assistant voice clone",
+  "labels": {
+    "accent": "american",
+    "language": "en"
+  },
+  "consent_confirmed": true,
+  "remove_background_noise": false
+}
+```
 
-VoiceRuntimeState
+### `POST /voices/:id/sample`
 
-session_id
+```json
+{
+  "sample_name": "sample-1.mp3",
+  "mime_type": "audio/mpeg",
+  "audio_base64": "BASE64_AUDIO_HERE",
+  "notes": "quiet room sample"
+}
+```
 
-active_job_id
+### `POST /voices/:id/finalize`
 
-queue_depth
+Creates the ElevenLabs voice clone in live mode, or a mock provider voice in mock mode.
 
-is_playing
+### `GET /voices/:id`
 
-last_interrupt_at
+Returns the stored `VoiceProfile`.
 
-Runtime rules for v1:
+### `POST /voices/preview`
 
-One active speech job at a time
+```json
+{
+  "voice_profile_id": "voice_...",
+  "text": "This is a quick preview of my cloned voice."
+}
+```
 
-Cancel playback if someone else starts speaking unless the job is flagged urgent
+### `POST /runtime/sessions/:id/speak`
 
-Keep speech short for low latency
+```json
+{
+  "voice_profile_id": "voice_...",
+  "text": "Thanks everyone. I agree with the proposed next step.",
+  "priority": 5,
+  "urgent": false
+}
+```
 
-Log latency for text received, synthesis started, synthesis completed, playback sent, playback ended
+### `POST /runtime/sessions/:id/cancel`
 
-Build the TTS provider behind an adapter, but ElevenLabs is mandatory in v1
+```json
+{
+  "reason": "Another participant started speaking."
+}
+```
 
-Important data requirements:
-The database must store:
+### `GET /runtime/sessions/:id/state`
 
-whether the user consented to cloning
+Returns the current runtime state and queued jobs for that session.
 
-how many voice samples were uploaded
+## What This Service Already Handles
 
-provider voice ID from ElevenLabs
+- voice profile creation
+- consent tracking
+- sample storage on disk
+- ElevenLabs clone creation
+- speech preview generation
+- one active speech job at a time
+- priority queueing
+- cancellation and interruption state
+- latency timestamps on each speech job
+- placeholder delivery output for the meeting gateway
+- placeholder status event output for the control backend
 
-profile status such as pending, ready, failed
+## What Is Still Placeholder
 
-Out of scope:
+- multipart file upload support
+- real streaming playback into Zoom
+- real backend callback contract with teammate services
+- speaker-detection-driven interrupt input from the meeting gateway
 
-No transcript logic
+Those are left as placeholders so you can finish your part without blocking on the other teams.
 
-No meeting summarization
+## Example Local Flow
 
-No UI ownership
+### 1. Enroll a voice
 
-No Zoom connection logic
+```powershell
+$headers = @{
+  Authorization = "Bearer replace-me"
+  "Content-Type" = "application/json"
+}
 
-No deciding what text gets spoken
+$body = @{
+  user_id = "user_123"
+  display_name = "Nathan Voice"
+  consent_confirmed = $true
+} | ConvertTo-Json
 
-How this connects to the rest:
+Invoke-RestMethod -Method Post -Uri "http://localhost:8083/voices/enroll" -Headers $headers -Body $body
+```
 
-Receives reply text from Gemini Intelligence
+### 2. Upload a sample
 
-Receives voice settings from Control Backend
+```powershell
+$audioBytes = [System.IO.File]::ReadAllBytes("C:\path\to\sample.mp3")
+$audioBase64 = [Convert]::ToBase64String($audioBytes)
 
-Sends speech audio to Meeting Gateway
+$sampleBody = @{
+  sample_name = "sample.mp3"
+  mime_type = "audio/mpeg"
+  audio_base64 = $audioBase64
+} | ConvertTo-Json
 
-Sends clone/runtime status back to Control Backend
+Invoke-RestMethod -Method Post -Uri "http://localhost:8083/voices/<VOICE_ID>/sample" -Headers $headers -Body $sampleBody
+```
 
-Definition of done:
-A service that can create a usable cloned voice with ElevenLabs, generate short TTS outputs in that voice, and safely manage playback jobs for live meetings.
+### 3. Finalize the clone
 
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://localhost:8083/voices/<VOICE_ID>/finalize" -Headers $headers
+```
+
+### 4. Queue meeting speech
+
+```powershell
+$speakBody = @{
+  voice_profile_id = "<VOICE_ID>"
+  text = "Thanks for the question. I support the plan and can own the next task."
+  priority = 5
+  urgent = $false
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://localhost:8083/runtime/sessions/session_123/speak" -Headers $headers -Body $speakBody
+```

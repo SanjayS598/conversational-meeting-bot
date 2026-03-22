@@ -12,6 +12,9 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
+_MAX_HISTORY_ITEMS = 12
+_MAX_CONTEXT_CHARS = 3500
+
 # Per-session Gemini history
 _sessions: dict[str, list[types.Content]] = {}
 
@@ -57,25 +60,30 @@ def get_response(
     session_id: str,
     transcript: str,
     speaker: Optional[str] = None,
+    recent_transcript: Optional[str] = None,
 ) -> str:
-    """Generate a short spoken reply using the sample zoom-agent prompt style."""
+    """Generate a spoken reply using recent speaker-labeled meeting context."""
     if session_id not in _sessions:
         return ""
 
     display_name = _display_names.get(session_id, "Agent")
     context = _contexts.get(session_id, "")
     history = _sessions[session_id]
+    latest_speaker = (speaker or "Participant").strip() or "Participant"
 
     system_prompt = f"""You are {display_name} in a live Zoom conversation.
 
 YOUR CONTEXT:
-{context}
+{context[:_MAX_CONTEXT_CHARS]}
 
 STRICT RULES:
 - Speak ONLY in first person as {display_name}
 - MAXIMUM 3000 characters per response — never more, no exceptions
-- This is spoken audio — keep it short, natural, conversational
-- If explaining a document or topic, give ONE point at a time and STOP
+- This is spoken audio — be natural, conversational, complete, and socially engaged
+- Respond directly to the latest speaker's actual message, not with a generic summary
+- Use specific details from the recent conversation when they are relevant
+- It is okay to give a full answer or add one brief follow-up question when that helps the conversation
+- Keep spoken delivery concise enough to sound natural live, but do not be artificially terse
 - Never use bullet points, numbered lists, markdown, or slide references
 - Never say things like \"(moves to slide X)\" or \"(presenting now)\"
 - Never reveal you are an AI
@@ -83,7 +91,14 @@ STRICT RULES:
 - Match the other person's energy
 """
 
-    user_text = transcript if not speaker else transcript
+    if recent_transcript:
+        user_text = (
+            f"Recent conversation:\n{recent_transcript}\n\n"
+            f"Latest message from {latest_speaker}: {transcript}"
+        )
+    else:
+        user_text = f"Latest message from {latest_speaker}: {transcript}"
+
     history.append(types.Content(role="user", parts=[types.Part(text=user_text)]))
 
     try:
@@ -92,25 +107,14 @@ STRICT RULES:
             contents=history,
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
-                temperature=0.75,
+                temperature=0.80,
+                max_output_tokens=768,
             ),
         )
         reply = response.text.strip()
 
-        if len(reply.split()) > 60:
-            sentences: list[str] = []
-            current: list[str] = []
-            for word in reply.split():
-                current.append(word)
-                if word[-1] in ".!?" and len(sentences) < 2:
-                    sentences.append(" ".join(current))
-                    current = []
-                    if len(sentences) == 2:
-                        break
-            reply = " ".join(sentences) if sentences else " ".join(reply.split()[:50])
-
         history.append(types.Content(role="model", parts=[types.Part(text=reply)]))
-        _sessions[session_id] = history
+        _sessions[session_id] = history[-_MAX_HISTORY_ITEMS:]
 
         logger.info(
             "Conversational response generated session_id=%s len=%d",
@@ -129,21 +133,22 @@ STRICT RULES:
 
 
 def generate_greeting(display_name: str, context: str) -> str:
-    """Generate a short greeting using the sample zoom-agent prompt style."""
+    """Generate an unrestricted greeting using the sample zoom-agent prompt style."""
     prompt = f"""You are about to join a Zoom meeting as {display_name}.
 
 Here is your full context and materials for the meeting:
 {context}
 
-Write a natural, warm 2-3 sentence introduction you would say when joining.
+Write a natural, warm introduction you would say when joining.
 Reference the actual content/topic you're here to discuss.
 Sound human and conversational — NOT robotic.
+Do not artificially shorten yourself; give the full introduction naturally.
 Just the spoken words, no stage directions."""
     try:
         response = _client.models.generate_content(
             model="gemini-2.5-flash",
             contents=[{"role": "user", "parts": [{"text": prompt}]}],
-            config=types.GenerateContentConfig(temperature=0.8, max_output_tokens=120),
+            config=types.GenerateContentConfig(temperature=0.8, max_output_tokens=1024),
         )
         return response.text.strip()
     except Exception as exc:

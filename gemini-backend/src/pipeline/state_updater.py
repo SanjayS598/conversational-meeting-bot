@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 ROLLING_WINDOW = 20
 
 # Debounce delay before triggering a conversational response (seconds)
-CONV_DEBOUNCE_S = 1.8
+CONV_DEBOUNCE_S = 1.2
 
 # Per-session debounce task handle
 _debounce_tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
@@ -165,10 +165,13 @@ class StateUpdater:
         # ── Conversational AI: debounced response ─────────────────────────────
         # Only triggers if the session has the conversational module active
         # (i.e. prep_id + bot_display_name were supplied at session start).
-        self._maybe_trigger_conv_response(session_id, new_segment)
+        self._maybe_trigger_conv_response(session_id, new_segment, recent)
 
     def _maybe_trigger_conv_response(
-        self, session_id: str, segment: TranscriptSegment
+        self,
+        session_id: str,
+        segment: TranscriptSegment,
+        recent_segments: list[TranscriptSegment],
     ) -> None:
         """Debounce and schedule a conversational reply if the session is in conv mode."""
         from ..voice import conversation as conv
@@ -180,18 +183,24 @@ class StateUpdater:
         if not text:
             return
 
+        recent_transcript = "\n".join(
+            f"{item.speaker_label}: {item.text.strip()}"
+            for item in recent_segments[-6:]
+            if item.text.strip()
+        )
+
         # Cancel any pending debounce task for this session
         existing = _debounce_tasks.get(session_id)
         if existing and not existing.done():
             existing.cancel()
 
-        _last_transcript[session_id] = text
+        _last_transcript[session_id] = recent_transcript
 
         async def _respond_after_debounce() -> None:
             await asyncio.sleep(CONV_DEBOUNCE_S)
 
             # Stale-check: if new speech arrived while we were waiting, abort
-            if _last_transcript.get(session_id) != text:
+            if _last_transcript.get(session_id) != recent_transcript:
                 logger.debug(
                     "Conv debounce stale session_id=%s — skipping", session_id
                 )
@@ -205,6 +214,7 @@ class StateUpdater:
                 session_id,
                 text,
                 segment.speaker_label,
+                recent_transcript,
             )
 
             if reply:

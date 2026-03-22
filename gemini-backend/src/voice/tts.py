@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _CHUNK_WORDS = 50  # max words per ElevenLabs request
 _ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech"
 _OUTPUT_FORMAT = "mp3_44100_128"
+_ELEVENLABS_MODEL = "eleven_monolingual_v1"
 
 
 def text_to_speech_mp3_b64(text: str) -> str:
@@ -24,11 +25,19 @@ def text_to_speech_mp3_b64(text: str) -> str:
         )
 
     words = text.split()
+    if len(words) <= _CHUNK_WORDS:
+        return base64.b64encode(_render_single_mp3(text)).decode("ascii")
+
     chunks: list[str] = []
-    for i in range(0, len(words), _CHUNK_WORDS):
-        chunk = " ".join(words[i : i + _CHUNK_WORDS]).strip()
-        if chunk:
-            chunks.append(chunk)
+    current: list[str] = []
+    for word in words:
+        current.append(word)
+        if len(current) >= _CHUNK_WORDS and word[-1] in ".!?…":
+            chunks.append(" ".join(current))
+            current = []
+
+    if current:
+        chunks.append(" ".join(current))
 
     if not chunks:
         return ""
@@ -50,13 +59,20 @@ def _render_single_mp3(text: str) -> bytes:
     }
     payload = {
         "text": text,
-        "model_id": "eleven_monolingual_v1",
+        "model_id": _ELEVENLABS_MODEL,
         "voice_settings": {
             "stability": 0.75,
             "similarity_boost": 0.90,
         },
     }
     params = {"output_format": _OUTPUT_FORMAT}
+
+    logger.info(
+        "ElevenLabs render voice_id=%s model=%s chars=%d",
+        settings.elevenlabs_voice_id,
+        _ELEVENLABS_MODEL,
+        len(text),
+    )
 
     with httpx.Client(timeout=30.0) as client:
         resp = client.post(url, headers=headers, json=payload, params=params)

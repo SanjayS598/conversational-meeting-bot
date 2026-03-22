@@ -13,6 +13,7 @@ export async function callService(
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${process.env.INTERNAL_SERVICE_TOKEN}`,
+      "x-internal-token": process.env.INTERNAL_SERVICE_TOKEN ?? "",
       ...(init?.headers ?? {}),
     },
   });

@@ -25,21 +25,27 @@ export async function POST(_req: Request, { params }: Params) {
 
   if (!session) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Mark session as ended
+  // Tell Meeting Gateway to stop
+  const gwUrl = process.env.MEETING_GATEWAY_URL ?? "http://localhost:3001";
+  const gatewayResponse = await callService(gwUrl, `/sessions/${id}/stop`, {
+    method: "POST",
+  });
+
+  if (!gatewayResponse.ok && gatewayResponse.status !== 404) {
+    const body = await gatewayResponse.text();
+    return NextResponse.json(
+      { error: body || "Failed to stop meeting gateway session" },
+      { status: gatewayResponse.status }
+    );
+  }
+
+  // Always mark the session as ended in the DB — covers the case where the
+  // gateway returned 404 (session not in memory after a restart) so the live
+  // page stops polling.
   await supabase
     .from("meeting_sessions")
     .update({ status: "ended", ended_at: new Date().toISOString() })
     .eq("id", id);
-
-  // Tell Meeting Gateway to stop
-  const gwUrl = process.env.MEETING_GATEWAY_URL ?? "http://localhost:3001";
-  callService(gwUrl, `/sessions/${id}/stop`, { method: "POST" }).catch(() => {});
-
-  // Tell voice runtime to cancel any active speech
-  const vrUrl = process.env.VOICE_RUNTIME_URL ?? "http://localhost:8083";
-  callService(vrUrl, `/runtime/sessions/${id}/cancel`, { method: "POST" }).catch(
-    () => {}
-  );
 
   await supabase.from("agent_events").insert({
     session_id: id,

@@ -19,7 +19,7 @@ import time
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 
 from ..clients.backend import BackendClient, BackendClientError
 from ..clients.voice import VoiceClient, VoiceClientError
@@ -38,6 +38,7 @@ from ..schemas.session import (
     SummaryResponse,
 )
 from ..sessions.manager import SessionManager, SessionNotFoundError
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,46 @@ def _build_summary_model(session_id: str, result, generated_at: int) -> MeetingS
     )
 
 
+async def _ensure_summary(
+    session_id: str,
+    session_manager: SessionManager,
+    provider: AIProvider,
+    backend_client: BackendClient,
+) -> SummaryResponse:
+    session = await session_manager.get_or_raise(session_id)
+    if session.summary is not None:
+        return SummaryResponse(
+            session_id=session_id,
+            summary=session.summary,
+            transcript_count=len(session.transcript),
+        )
+
+    payload = SummaryPayload(
+        session_id=session_id,
+        full_transcript=_join_transcript_lines(session.transcript),
+        meeting_objective=session.config.meeting_objective,
+        current_state=session.meeting.model_dump_json(),
+    )
+    result = await provider.generate_meeting_summary(payload)
+    summary = _build_summary_model(
+        session_id=session_id,
+        result=result,
+        generated_at=int(time.time() * 1000),
+    )
+    await session_manager.save_summary(session_id, summary)
+
+    try:
+        await backend_client.push_summary(summary)
+    except BackendClientError as exc:
+        logger.warning("Failed to push summary to backend session_id=%s: %s", session_id, exc)
+
+    return SummaryResponse(
+        session_id=session_id,
+        summary=summary,
+        transcript_count=len(session.transcript),
+    )
+
+
 # ─── POST /brain/sessions/{session_id}/start ─────────────────────────────────
 
 
@@ -175,6 +216,7 @@ async def start_session(
 async def audio_stream(
     websocket: WebSocket,
     session_id: str,
+    token: str = Query(default=""),
 ) -> None:
     """
     WebSocket endpoint for streaming raw PCM audio.
@@ -185,6 +227,11 @@ async def audio_stream(
     Optional text frames are treated as control messages:
       {"type": "stop"} — graceful session end
     """
+    # Validate internal service token before accepting the connection
+    if token != settings.internal_service_token:
+        await websocket.close(code=4401, reason="Unauthorized")
+        return
+
     audio_processor: AudioProcessor = websocket.app.state.audio_processor
     session_manager: SessionManager = websocket.app.state.session_manager
 
@@ -234,6 +281,17 @@ async def audio_stream(
     finally:
         await audio_processor.stop(session_id)
         await session_manager.end(session_id)
+        try:
+            await _ensure_summary(
+                session_id=session_id,
+                session_manager=session_manager,
+                provider=websocket.app.state.provider,
+                backend_client=websocket.app.state.backend_client,
+            )
+        except SessionNotFoundError:
+            logger.warning("Summary skipped for missing session_id=%s", session_id)
+        except Exception as exc:
+            logger.warning("Automatic summary generation failed session_id=%s: %s", session_id, exc)
         try:
             await websocket.close()
         except Exception:
@@ -419,47 +477,17 @@ async def generate_summary(
 ) -> SummaryResponse:
     """Generate and cache a structured meeting summary from the current transcript."""
     try:
-        session = await session_manager.get_or_raise(session_id)
+        return await _ensure_summary(
+            session_id=session_id,
+            session_manager=session_manager,
+            provider=provider,
+            backend_client=backend_client,
+        )
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
-
-    if session.summary is not None:
-        return SummaryResponse(
-            session_id=session_id,
-            summary=session.summary,
-            transcript_count=len(session.transcript),
-        )
-
-    payload = SummaryPayload(
-        session_id=session_id,
-        full_transcript=_join_transcript_lines(session.transcript),
-        meeting_objective=session.config.meeting_objective,
-        current_state=session.meeting.model_dump_json(),
-    )
-
-    try:
-        result = await provider.generate_meeting_summary(payload)
     except Exception as exc:
         logger.error("Summary generation failed session_id=%s: %s", session_id, exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Summary generation failed",
         ) from exc
-
-    summary = _build_summary_model(
-        session_id=session_id,
-        result=result,
-        generated_at=int(time.time() * 1000),
-    )
-    await session_manager.save_summary(session_id, summary)
-
-    try:
-        await backend_client.push_summary(summary)
-    except BackendClientError as exc:
-        logger.warning("Failed to push summary to backend session_id=%s: %s", session_id, exc)
-
-    return SummaryResponse(
-        session_id=session_id,
-        summary=summary,
-        transcript_count=len(session.transcript),
-    )

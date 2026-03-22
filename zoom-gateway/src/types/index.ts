@@ -24,6 +24,10 @@ export interface StartSessionInput {
   passcode?: string;
   /** Override the display name the bot uses inside the meeting. */
   bot_display_name?: string;
+  /** Short description of what the meeting is about — passed to the AI brain for context. */
+  meeting_objective?: string;
+  /** Longer background notes or context for the AI brain. */
+  prep_notes?: string;
 }
 
 export interface Session {

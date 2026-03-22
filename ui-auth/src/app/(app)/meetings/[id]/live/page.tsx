@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { MarkdownDocument } from "@/components/MarkdownDocument";
 import {
   Mic,
-  MicOff,
   Square,
   Loader2,
   AlertCircle,
@@ -49,6 +49,7 @@ export default function LiveMeetingPage({ params }: Props) {
   const [error, setError] = useState<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const finalizingRef = useRef(false);
 
   // Resolve params
   useEffect(() => {
@@ -63,8 +64,14 @@ export default function LiveMeetingPage({ params }: Props) {
       setState(data);
       setError(null);
       // Redirect to summary if ended
-      if (data.session.status === "ended") {
-        clearInterval(pollRef.current!);
+      if (data.session.status === "ended" && !finalizingRef.current) {
+        finalizingRef.current = true;
+        if (pollRef.current) clearInterval(pollRef.current);
+        try {
+          await fetch(`/api/meetings/${id}/finalize`, { method: "POST" });
+        } catch {
+          // Automatic finalization may already be running server-side.
+        }
         router.push(`/meetings/${id}/summary`);
       }
     } catch {
@@ -72,17 +79,26 @@ export default function LiveMeetingPage({ params }: Props) {
     }
   }, [router]);
 
-  // Start session and begin polling
+  // Start session (if not already started) and begin polling
   useEffect(() => {
     if (!sessionId) return;
 
     async function init() {
+      // Check current status first — if new meeting page already started it, skip the start call
       try {
-        await fetch(`/api/meetings/${sessionId}/start`, { method: "POST" });
+        const check = await fetch(`/api/meetings/${sessionId}/live`);
+        if (check.ok) {
+          const data: LiveSessionState = await check.json();
+          if (data.session.status === "created") {
+            // Only start if session hasn't been kicked off yet
+            await fetch(`/api/meetings/${sessionId}/start`, { method: "POST" }).catch(() => {});
+          }
+          setState(data);
+        }
       } catch {
-        // Session may already be started
+        // Fall back to trying start anyway
+        await fetch(`/api/meetings/${sessionId}/start`, { method: "POST" }).catch(() => {});
       }
-      fetchLiveState(sessionId!);
       pollRef.current = setInterval(() => fetchLiveState(sessionId!), 2000);
     }
 
@@ -158,7 +174,7 @@ export default function LiveMeetingPage({ params }: Props) {
             ) : (
               <Square className="w-4 h-4" />
             )}
-            Stop Session
+            Stop Listener
           </button>
         </div>
       </header>
@@ -319,9 +335,9 @@ function NotesPanel({ notes }: { notes: LiveSessionState["notes"] }) {
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
             Summary
           </h3>
-          <p className="text-slate-200 text-sm leading-relaxed bg-[#0d1424] border border-slate-800 rounded-xl p-4">
-            {notes.summary}
-          </p>
+          <div className="text-slate-200 text-sm leading-relaxed bg-[#0d1424] border border-slate-800 rounded-xl p-4">
+            <MarkdownDocument markdown={notes.summary} />
+          </div>
         </section>
       )}
 
@@ -420,11 +436,6 @@ function AgentStatusPanel({ state }: { state: LiveSessionState | null }) {
             active={state?.session.status === "joined"}
           />
           <StatusRow
-            label="Speaking"
-            value={state?.agent_speaking ? "Yes" : "Idle"}
-            active={state?.agent_speaking ?? false}
-          />
-          <StatusRow
             label="Transcript lines"
             value={String(state?.transcript?.length ?? 0)}
           />
@@ -462,7 +473,7 @@ function AgentStatusPanel({ state }: { state: LiveSessionState | null }) {
 
       <div className="mt-auto pt-2 border-t border-slate-800">
         <p className="text-xs text-slate-600 text-center">
-          Updates every 2 seconds
+          Listen-only mode. Updates every 2 seconds.
         </p>
       </div>
     </>

@@ -34,6 +34,10 @@ class SessionManager {
 
   /** Create and asynchronously start a bot session. Returns immediately with 'created' status. */
   async startSession(input: StartSessionInput): Promise<Session> {
+    // Idempotency: return existing session if already started with this ID
+    const existing = this.sessions.get(input.meeting_session_id);
+    if (existing) return existing.session;
+
     if (this.sessions.size >= config.maxConcurrentSessions) {
       throw new Error(
         `Maximum concurrent sessions (${config.maxConcurrentSessions}) reached`,
@@ -67,7 +71,7 @@ class SessionManager {
     this.emit('session.created', session.id);
 
     // Join async — caller gets a 202 immediately; status events track progress
-    this.doJoin(session, joiner, input.passcode).catch((err: unknown) => {
+    this.doJoin(session, joiner, input.passcode, input.meeting_objective, input.prep_notes).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[SessionManager] Join failed for ${session.id}: ${msg}`);
       this.updateStatus(session.id, 'failed', msg);
@@ -82,11 +86,12 @@ class SessionManager {
 
     await active.joiner.cleanup();
     active.session.ended_at = new Date();
+
+    // Close the brain session first so the backend can flush the last audio buffer.
+    await geminiBrainClient.stopSession(sessionId).catch(() => {});
+
     this.updateStatus(sessionId, 'ended');
     this.sessions.delete(sessionId);
-
-    // Stop gemini brain session (best-effort)
-    geminiBrainClient.stopSession(sessionId).catch(() => {});
   }
 
   getSession(sessionId: string): Session | undefined {
@@ -135,6 +140,8 @@ class SessionManager {
     session: Session,
     joiner: ZoomJoiner,
     passcode?: string,
+    meetingObjective?: string,
+    prepNotes?: string,
   ): Promise<void> {
     await joiner.join(session.meeting_url, session.bot_display_name, passcode);
     const active = this.sessions.get(session.id);
@@ -142,7 +149,8 @@ class SessionManager {
 
     // Start Gemini brain session now that we've joined the meeting
     geminiBrainClient.startSession(session.id, {
-      meetingObjective: `Attend and take notes for meeting at ${session.meeting_url}`,
+      meetingObjective: meetingObjective ?? `Attend and take notes for meeting at ${session.meeting_url}`,
+      prepNotes,
     }).catch((err: unknown) => {
       console.warn(`[SessionManager] Gemini brain start failed for ${session.id}:`, err);
     });

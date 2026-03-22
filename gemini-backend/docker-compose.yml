@@ -1,8 +1,13 @@
+# DEPRECATED — use the root docker-compose.yml instead:
+#   docker compose up --build   (from project root)
+#
+# This file only runs gemini-backend + redis in isolation.
+# The port here is wrong (3001); the service runs on 3002.
 services:
   gemini-backend:
     build: .
     ports:
-      - "3001:3001"
+      - "3002:3002"
     env_file:
       - .env
     depends_on:

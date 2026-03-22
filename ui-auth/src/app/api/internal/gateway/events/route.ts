@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/server";
+import { finalizeMeetingSummary } from "@/lib/meeting-finalizer";
 import { NextResponse } from "next/server";
 
 /**
@@ -41,6 +42,20 @@ export async function POST(req: Request) {
     event_type: `gateway.${status}`,
     payload_json: { error: sessionError ?? null },
   });
+
+  if (status === "ended") {
+    try {
+      await finalizeMeetingSummary(session_id);
+    } catch (error) {
+      await supabase.from("agent_events").insert({
+        session_id,
+        event_type: "summary.finalize_failed",
+        payload_json: {
+          error: error instanceof Error ? error.message : "Unknown summary finalization error",
+        },
+      });
+    }
+  }
 
   return NextResponse.json({ ok: true });
 }

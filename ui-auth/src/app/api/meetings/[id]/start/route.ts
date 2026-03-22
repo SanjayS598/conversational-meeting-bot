@@ -28,6 +28,19 @@ export async function POST(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
+  // Parse optional body params (passcode, objective, prep notes)
+  let passcode: string | undefined;
+  let meeting_objective: string | undefined;
+  let prep_notes: string | undefined;
+  try {
+    const body = await _req.json().catch(() => ({}));
+    passcode = body.passcode || undefined;
+    meeting_objective = body.meeting_objective || undefined;
+    prep_notes = body.prep_notes || undefined;
+  } catch {
+    // Body is optional — ignore parse errors
+  }
+
   // Mark session as joining
   await supabase
     .from("meeting_sessions")
@@ -41,34 +54,39 @@ export async function POST(_req: Request, { params }: Params) {
     .eq("user_id", user.id)
     .single();
 
-  // Fetch voice profile
-  const { data: voice } = await supabase
-    .from("voice_profiles")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("status", "ready")
-    .single();
-
-  // Fire-and-forget: tell the Meeting Gateway to join
+  // Tell the Meeting Gateway to join
   const gwUrl = process.env.MEETING_GATEWAY_URL ?? "http://localhost:3001";
-  callService(gwUrl, "/sessions/start", {
+  const gatewayResponse = await callService(gwUrl, "/sessions/start", {
     method: "POST",
     body: JSON.stringify({
       meeting_session_id: id,
       user_id: user.id,
       meeting_url: session.meeting_url,
-      agent_config: prefs ?? {},
-      voice_profile_id: voice?.id ?? null,
+      bot_display_name: prefs?.agent_display_name ?? undefined,
+      passcode,
+      meeting_objective,
+      prep_notes,
     }),
-  }).catch(() => {
-    // Best-effort; gateway may not be running locally during dev
   });
+
+  if (!gatewayResponse.ok) {
+    await supabase
+      .from("meeting_sessions")
+      .update({ status: "failed" })
+      .eq("id", id);
+
+    const body = await gatewayResponse.text();
+    return NextResponse.json(
+      { error: body || "Failed to start meeting gateway session" },
+      { status: gatewayResponse.status }
+    );
+  }
 
   // Record an agent event
   await supabase.from("agent_events").insert({
     session_id: id,
     event_type: "session.start_requested",
-    payload_json: { initiated_by: user.id },
+    payload_json: { initiated_by: user.id, mode: "notes_only" },
   });
 
   return NextResponse.json({ ok: true });

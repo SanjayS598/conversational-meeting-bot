@@ -14,10 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source
 COPY src/ ./src/
 
-# Non-root user for security
-RUN adduser --disabled-password --gecos "" appuser && chown -R appuser /app
-USER appuser
+EXPOSE 3002
 
-EXPOSE 3001
-
-CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "3001", "--log-level", "info"]
+# --reload watches /app/src (volume-mounted from host for hot-reload)
+CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "3002", "--reload", "--log-level", "info"]

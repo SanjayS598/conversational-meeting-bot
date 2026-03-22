@@ -12,7 +12,7 @@ router.use(requireInternalAuth);
 // Body: StartSessionInput
 // Returns 202 with the created Session object (status will be 'created', bot joins async)
 router.post('/start', async (req, res) => {
-  const { meeting_session_id, user_id, meeting_url, passcode, bot_display_name } =
+  const { meeting_session_id, user_id, meeting_url, passcode, bot_display_name, meeting_objective, prep_notes } =
     req.body as Partial<StartSessionInput>;
 
   if (!meeting_session_id || !user_id || !meeting_url) {
@@ -29,6 +29,8 @@ router.post('/start', async (req, res) => {
       meeting_url,
       passcode,
       bot_display_name,
+      meeting_objective,
+      prep_notes,
     });
     res.status(202).json(session);
   } catch (err) {

@@ -31,6 +31,7 @@ export class GeminiBrainClient {
     sessionId: string,
     opts: {
       meetingObjective?: string;
+      prepNotes?: string;
       voiceProfileId?: string;
     } = {},
   ): Promise<void> {
@@ -42,7 +43,8 @@ export class GeminiBrainClient {
         `${brainUrl}/brain/sessions/${sessionId}/start`,
         {
           meeting_objective: opts.meetingObjective ?? 'Attend and take notes for this meeting',
-          mode: 'suggest',
+          prep_notes: opts.prepNotes ?? '',
+          mode: 'notes_only',
           voice_profile_id: opts.voiceProfileId ?? null,
         },
         {
@@ -87,10 +89,20 @@ export class GeminiBrainClient {
 
     this.sessions.delete(sessionId);
 
-    if (s.ws && s.ws.readyState === WebSocket.OPEN) {
+    if (!s.ws) {
+      return;
+    }
+
+    if (s.ws.readyState === WebSocket.OPEN) {
       try {
+        const closed = new Promise<void>((resolve) => {
+          const finish = () => resolve();
+          s.ws?.once('close', finish);
+          setTimeout(finish, 3_000);
+        });
         s.ws.send(JSON.stringify({ type: 'stop' }));
         s.ws.close();
+        await closed;
       } catch {
         // Ignore close errors
       }

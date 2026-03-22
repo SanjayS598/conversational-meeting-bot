@@ -24,8 +24,8 @@ redis-stop:
 # ── Services ──────────────────────────────────────────────────────────────────
 
 dev:
-	@echo "Starting Gemini Intelligence Service on port 3001..."
-	.venv/bin/python -m uvicorn src.main:app --host 0.0.0.0 --port 3001 --reload --log-level info
+	@echo "Starting Gemini Intelligence Service on port 3002..."
+	.venv/bin/python -m uvicorn src.main:app --host 0.0.0.0 --port 3002 --reload --log-level info
 
 mock:
 	@echo "Starting mock Control Backend (4000) and Voice Runtime (5000)..."

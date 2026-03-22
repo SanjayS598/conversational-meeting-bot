@@ -1,3 +1,4 @@
+import { MarkdownDocument } from "@/components/MarkdownDocument";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -125,7 +126,9 @@ export default async function MeetingSummaryPage({ params }: Props) {
               Summary
             </h2>
             {note?.summary ? (
-              <p className="text-slate-200 text-sm leading-relaxed">{note.summary}</p>
+              <div>
+                <MarkdownDocument markdown={note.summary} />
+              </div>
             ) : (
               <p className="text-slate-500 text-sm italic">No summary available.</p>
             )}

@@ -1,0 +1,130 @@
+# Run everything with: docker compose up --build
+# Logs:             docker compose logs -f [service]
+# Stop:             docker compose down
+#
+# First run: copy each service's .env.example to .env (and ui-auth/.env.local).
+# Services talk to each other via Docker service names; localhost URLs in your
+# .env files are overridden by the `environment` blocks below.
+
+name: meeting-bot
+
+services:
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Gemini backend (Python / FastAPI / faster-whisper) ────────────────────
+
+  gemini-backend:
+    build:
+      context: ./gemini-backend
+    env_file:
+      - path: ./gemini-backend/.env
+        required: false
+    environment:
+      PORT: "3002"
+      REDIS_URL: redis://redis:6379
+      BACKEND_URL: http://ui-auth:3000
+      VOICE_RUNTIME_URL: http://voice-cloning:8083
+    volumes:
+      # Hot-reload: only mount source; Python deps stay in the image
+      - ./gemini-backend/src:/app/src
+      # Persist faster-whisper model downloads across container restarts
+      - whisper-cache:/root/.cache
+    ports:
+      - "3002:3002"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:3002/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ── Zoom gateway (TypeScript / Express / Puppeteer headless Chrome) ────────
+
+  zoom-gateway:
+    build:
+      context: ./zoom-gateway
+    env_file:
+      - path: ./zoom-gateway/.env
+        required: false
+    environment:
+      PORT: "3001"
+      GEMINI_SERVICE_URL: http://gemini-backend:3002
+      CONTROL_BACKEND_URL: http://ui-auth:3000
+      VOICE_SERVICE_URL: http://voice-cloning:8083
+    volumes:
+      # Hot-reload: only mount source; node_modules + Chrome stay in the image
+      - ./zoom-gateway/src:/app/src
+    ports:
+      - "3001:3001"
+    # Chrome needs extra shared memory; 2 GB avoids renderer crashes
+    shm_size: "2gb"
+    depends_on:
+      gemini-backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Voice cloning / TTS (Node.js / ElevenLabs) ───────────────────────────
+
+  voice-cloning:
+    build:
+      context: ./voice-cloning
+    env_file:
+      - path: ./voice-cloning/.env
+        required: false
+    environment:
+      PORT: "8083"
+      CONTROL_BACKEND_BASE_URL: http://ui-auth:3000
+      MEETING_GATEWAY_BASE_URL: http://zoom-gateway:3001
+    volumes:
+      - ./voice-cloning/src:/app/src
+    ports:
+      - "8083:8083"
+    restart: unless-stopped
+
+  # ── UI + auth (Next.js) ───────────────────────────────────────────────────
+
+  ui-auth:
+    build:
+      context: ./ui-auth
+    env_file:
+      - path: ./ui-auth/.env.local
+        required: false
+    environment:
+      # Override localhost URLs with Docker service names
+      MEETING_GATEWAY_URL: http://zoom-gateway:3001
+      GEMINI_SERVICE_URL: http://gemini-backend:3002
+      VOICE_RUNTIME_URL: http://voice-cloning:8083
+    volumes:
+      # Hot-reload source; node_modules stays in the image
+      - ./ui-auth/src:/app/src
+      - ./ui-auth/public:/app/public
+      - ui-auth-next:/app/.next
+    ports:
+      - "3000:3000"
+    depends_on:
+      - zoom-gateway
+      - gemini-backend
+      - voice-cloning
+    restart: unless-stopped
+
+# ── Named volumes ──────────────────────────────────────────────────────────
+
+volumes:
+  # faster-whisper model cache (persists across rebuilds — avoids re-downloading)
+  whisper-cache:
+  # Next.js incremental compilation cache
+  ui-auth-next:

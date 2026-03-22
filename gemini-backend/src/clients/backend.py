@@ -22,6 +22,28 @@ DEFAULT_TIMEOUT = 10.0  # seconds
 EVENTS_PATH = "/api/internal/events"
 
 
+def _format_summary_markdown(summary: MeetingSummary) -> str:
+    lines: list[str] = [f"# {summary.title}"]
+
+    if summary.executive_summary:
+        lines.extend(["", "## Executive Summary", summary.executive_summary])
+    if summary.key_decisions:
+        lines.extend(["", "## Key Decisions", *[f"- {item}" for item in summary.key_decisions]])
+    if summary.action_items:
+        lines.append("")
+        lines.append("## Action Items")
+        for item in summary.action_items:
+            owner = f" ({item.owner})" if item.owner else ""
+            due = f" - due {item.due_hint}" if item.due_hint else ""
+            lines.append(f"- {item.description}{owner}{due}")
+    if summary.open_questions:
+        lines.extend(["", "## Open Questions", *[f"- {item}" for item in summary.open_questions]])
+    if summary.next_steps:
+        lines.extend(["", "## Next Steps", *[f"- {item}" for item in summary.next_steps]])
+
+    return "\n".join(lines).strip()
+
+
 class BackendClientError(Exception):
     """Raised when the Control Backend returns a non-2xx response."""
 
@@ -106,17 +128,11 @@ class BackendClient:
 
     async def push_summary(self, summary: MeetingSummary) -> None:
         """Push a generated meeting summary to the Control Backend."""
-        summary_parts = [part for part in [summary.title, summary.executive_summary] if part]
-        if summary.key_decisions:
-            summary_parts.append("Key decisions:\n" + "\n".join(f"- {item}" for item in summary.key_decisions))
-        if summary.next_steps:
-            summary_parts.append("Next steps:\n" + "\n".join(f"- {item}" for item in summary.next_steps))
-
         await self._emit(
             event_type="notes.update",
             payload={
                 "session_id": summary.session_id,
-                "summary": "\n\n".join(summary_parts),
+                "summary": _format_summary_markdown(summary),
                 "decisions_json": summary.key_decisions,
                 "questions_json": summary.open_questions,
             },

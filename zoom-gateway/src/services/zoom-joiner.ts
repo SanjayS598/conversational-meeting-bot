@@ -210,6 +210,10 @@ const AUDIO_BTN_SELECTORS = [
 /**
  * Selectors that indicate the bot is fully inside the meeting room
  * (i.e. the meeting toolbar is rendered and interactive).
+ *
+ * IMPORTANT: must NOT match elements on the pre-join form page.
+ * Removed '.zm-btn' (matches Join button on pre-join form) and
+ * '.footer' (matches copyright footer on every Zoom page).
  */
 const IN_MEETING_SELECTORS = [
   'button[aria-label*="Mute" i]',
@@ -219,8 +223,6 @@ const IN_MEETING_SELECTORS = [
   '.\\35 a4-button',              // Zoom className that starts with a digit
   '[class*="footer-button"]',
   '[class*="meeting-footer"]',
-  '.zm-btn',
-  '.footer',
 ];
 
 /**
@@ -754,10 +756,15 @@ export class ZoomJoiner {
   private async runPostJoinStateMachine(): Promise<void> {
     const TIMEOUT = 5 * 60_000; // wait up to 5 min (covers waiting-room scenarios)
     const POLL = 1000;
-    const WAITING_ROOM_CHECK_AFTER = Date.now() + 10_000; // settle window
+    const now = Date.now();
+    // Settle windows — avoid false positives from the pre-join form:
+    //   - IN_MEETING check: wait at least 8 s for Zoom SPA to navigate away from pre-join
+    //   - WAITING_ROOM check: wait 10 s for Zoom loading overlay to clear
+    const IN_MEETING_CHECK_AFTER = now + 8_000;
+    const WAITING_ROOM_CHECK_AFTER = now + 10_000;
 
     let inWaitingRoom = false;
-    const deadline = Date.now() + TIMEOUT;
+    const deadline = now + TIMEOUT;
 
     await this.saveScreenshot('after-join-click');
 
@@ -765,11 +772,15 @@ export class ZoomJoiner {
       if (!this.page || this.page.isClosed()) break;
 
       // ① Check for meeting toolbar (primary success signal)
-      const toolbarFound = await this.isAnyVisible(IN_MEETING_SELECTORS);
-      if (toolbarFound) {
-        this.log('Post-join: meeting toolbar confirmed — bot is fully in');
-        await this.saveScreenshot('in-meeting-confirmed');
-        return;
+      //    Only after the 8-second settle window to avoid false positives
+      //    from .zm-btn / .footer-button present on the pre-join form page.
+      if (Date.now() > IN_MEETING_CHECK_AFTER) {
+        const toolbarFound = await this.isAnyVisible(IN_MEETING_SELECTORS);
+        if (toolbarFound) {
+          this.log('Post-join: meeting toolbar confirmed — bot is fully in');
+          await this.saveScreenshot('in-meeting-confirmed');
+          return;
+        }
       }
 
       // ② Check for audio-join dialog and click it

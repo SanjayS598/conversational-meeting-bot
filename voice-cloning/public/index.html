@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Voice Cloning Test Console</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Temporary Test UI</p>
+          <h1>Voice Cloning Console</h1>
+          <p class="subcopy">
+            This page lets you manually test enrollment, sample upload, clone creation,
+            preview generation, runtime queueing, and cancellation.
+          </p>
+        </div>
+        <div class="status-card">
+          <div class="status-row"><span>Service</span><strong id="health-status">Checking...</strong></div>
+          <div class="status-row"><span>Mode</span><strong id="health-mode">-</strong></div>
+          <div class="status-row"><span>Port</span><strong>8083</strong></div>
+          <div class="actions compact">
+            <button id="reset-all" class="secondary">Reset Everything</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Session Setup</h2>
+        <p class="section-help">
+          Paste your internal auth token and choose the user ID you want to test with.
+          Do this first before clicking anything else.
+        </p>
+        <div class="grid two">
+          <label>
+            <span>Internal Auth Token</span>
+            <input id="auth-token" type="password" placeholder="Paste INTERNAL_BACKEND_AUTH_TOKEN">
+          </label>
+          <label>
+            <span>Current User ID</span>
+            <input id="user-id" type="text" value="demo_user_1">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="save-settings">Save Local Settings</button>
+          <button id="refresh-health" class="secondary">Refresh Service Status</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>1. Create Voice Profile</h2>
+        <p class="section-help">
+          Paste:
+          `Current User ID` from Session Setup.
+          Type:
+          `Display Name` and optional `Description`.
+          Then click:
+          `Create Voice Profile`.
+        </p>
+        <div class="grid two">
+          <label>
+            <span>Display Name</span>
+            <input id="display-name" type="text" placeholder="Nathan Voice">
+          </label>
+          <label>
+            <span>Description</span>
+            <input id="description" type="text" placeholder="Temporary UI clone test">
+          </label>
+        </div>
+        <label class="check">
+          <input id="consent-confirmed" type="checkbox" checked>
+          <span>I confirm the user consents to voice cloning.</span>
+        </label>
+        <div class="actions">
+          <button id="create-voice">Create Voice Profile</button>
+          <button id="load-user-voices" class="secondary">Load My Voices</button>
+        </div>
+        <div id="voice-list" class="result-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>2. Upload Sample And Finalize</h2>
+        <p class="section-help">
+          Paste:
+          `Voice Profile ID` from step 1 or click `Use This Voice`.
+          Choose:
+          any local audio file you want to test with.
+          Then click:
+          `Upload Sample`.
+          After upload finishes, click:
+          `Finalize Clone`.
+        </p>
+        <div class="grid two">
+          <label>
+            <span>Voice Profile ID</span>
+            <input id="voice-profile-id" type="text" placeholder="voice_...">
+          </label>
+          <label>
+            <span>Audio File</span>
+            <input id="sample-file" type="file">
+          </label>
+        </div>
+        <div class="actions">
+          <button id="upload-sample">Upload Sample</button>
+          <button id="finalize-voice" class="secondary">Finalize Clone</button>
+          <button id="load-default-voice" class="secondary">Load Default Ready Voice</button>
+        </div>
+        <pre id="voice-detail" class="console"></pre>
+      </section>
+
+      <section class="panel">
+        <h2>3. Generate Preview Speech</h2>
+        <p class="section-help">
+          Paste:
+          `Voice Profile ID` from the previous section.
+          Type:
+          any short sentence in `Preview Text`.
+          Then click:
+          `Generate Preview`.
+          Use the audio player below to listen.
+        </p>
+        <label>
+          <span>Preview Text</span>
+          <textarea id="preview-text" rows="3">Hello team. This is the temporary frontend test for the voice cloning service.</textarea>
+        </label>
+        <div class="actions">
+          <button id="generate-preview">Generate Preview</button>
+        </div>
+        <audio id="preview-audio" controls class="audio-player"></audio>
+        <pre id="preview-detail" class="console"></pre>
+      </section>
+
+      <section class="panel">
+        <h2>4. Queue Meeting Speech</h2>
+        <p class="section-help">
+          Paste:
+          `Current User ID` from Session Setup.
+          Type:
+          a fake `Session ID` and some `Runtime Text`.
+          Then click:
+          `Queue Speech With User ID`.
+          After a few seconds, click:
+          `Refresh Runtime State`.
+          If you want to stop it, click:
+          `Cancel Current Runtime Job`.
+        </p>
+        <div class="grid two">
+          <label>
+            <span>Session ID</span>
+            <input id="session-id" type="text" value="meeting_ui_demo">
+          </label>
+          <label>
+            <span>Priority</span>
+            <input id="priority" type="number" min="0" max="10" value="5">
+          </label>
+        </div>
+        <label>
+          <span>Runtime Text</span>
+          <textarea id="runtime-text" rows="3">Thanks everyone. I reviewed the plan and I support the next step.</textarea>
+        </label>
+        <label class="check">
+          <input id="urgent" type="checkbox">
+          <span>Mark as urgent</span>
+        </label>
+        <div class="actions">
+          <button id="queue-speech">Queue Speech With User ID</button>
+          <button id="refresh-runtime" class="secondary">Refresh Runtime State</button>
+          <button id="cancel-runtime" class="secondary">Cancel Current Runtime Job</button>
+        </div>
+        <audio id="runtime-audio" controls class="audio-player"></audio>
+        <pre id="runtime-detail" class="console"></pre>
+      </section>
+
+      <section class="panel">
+        <h2>Minimum Test Plan</h2>
+        <div class="test-list">
+          <div class="test-item">
+            <strong>Test 1: Create and clone a voice</strong>
+            <p>Save settings. Create voice profile. Upload one audio file. Finalize clone. Confirm the status becomes `ready`.</p>
+          </div>
+          <div class="test-item">
+            <strong>Test 2: Generate preview speech</strong>
+            <p>Use the same voice profile. Enter a short sentence. Generate preview. Press play on the preview audio player.</p>
+          </div>
+          <div class="test-item">
+            <strong>Test 3: Queue runtime speech</strong>
+            <p>Enter a session ID. Queue speech with user ID. Refresh runtime state. Confirm the job finishes and the runtime audio player works.</p>
+          </div>
+          <div class="test-item">
+            <strong>Test 4: Cancel runtime speech</strong>
+            <p>Queue a longer message. Immediately click cancel. Refresh runtime state and confirm the job changes to `canceled` or `interrupted`.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Activity Log</h2>
+        <pre id="activity-log" class="console tall"></pre>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

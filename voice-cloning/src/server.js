@@ -34,6 +34,39 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = url.pathname;
 
+    if (req.method === "GET" && pathname === "/") {
+      serveStaticFile(res, path.join(config.paths.root, "public", "index.html"), "text/html; charset=utf-8");
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/app.js") {
+      serveStaticFile(
+        res,
+        path.join(config.paths.root, "public", "app.js"),
+        "application/javascript; charset=utf-8"
+      );
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/styles.css") {
+      serveStaticFile(res, path.join(config.paths.root, "public", "styles.css"), "text/css; charset=utf-8");
+      return;
+    }
+
+    const audioMatch = pathname.match(/^\/audio\/([^/]+)$/);
+    if (req.method === "GET" && audioMatch) {
+      const requested = audioMatch[1];
+      const audioPath = path.join(config.paths.generatedAudio, requested);
+      if (!fs.existsSync(audioPath)) {
+        throw httpError(404, "Audio file not found.");
+      }
+
+      const buffer = fs.readFileSync(audioPath);
+      const contentType = audioPath.endsWith(".json") ? "application/json" : "audio/mpeg";
+      sendBinary(res, 200, buffer, contentType, requested);
+      return;
+    }
+
     if (req.method === "GET" && pathname === "/health") {
       sendJson(res, 200, {
         ok: true,
@@ -136,17 +169,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const audioMatch = pathname.match(/^\/audio\/([^/]+)$/);
-    if (req.method === "GET" && audioMatch) {
-      const requested = audioMatch[1];
-      const audioPath = path.join(config.paths.generatedAudio, requested);
-      if (!fs.existsSync(audioPath)) {
-        throw httpError(404, "Audio file not found.");
-      }
-
-      const buffer = fs.readFileSync(audioPath);
-      const contentType = audioPath.endsWith(".json") ? "application/json" : "audio/mpeg";
-      sendBinary(res, 200, buffer, contentType, requested);
+    const jobMatch = pathname.match(/^\/runtime\/jobs\/([^/]+)$/);
+    if (req.method === "GET" && jobMatch) {
+      const job = runtimeService.getJob(jobMatch[1]);
+      sendJson(res, 200, job);
       return;
     }
 
@@ -181,4 +207,13 @@ function authorize(req) {
 
   const header = req.headers.authorization || "";
   return header === `Bearer ${config.internalBackendAuthToken}`;
+}
+
+function serveStaticFile(res, filePath, contentType) {
+  if (!fs.existsSync(filePath)) {
+    throw httpError(404, `Static file not found: ${path.basename(filePath)}`);
+  }
+
+  const buffer = fs.readFileSync(filePath);
+  sendBinary(res, 200, buffer, contentType, path.basename(filePath));
 }

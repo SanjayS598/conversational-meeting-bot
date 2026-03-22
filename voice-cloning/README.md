@@ -151,6 +151,53 @@ node --watch src/server.js
 
 The service listens on `http://localhost:8083` by default.
 
+### 3. Open the temporary test UI
+
+Once the server is running, open:
+
+```text
+http://localhost:8083
+```
+
+This temporary page is only for manual testing during development.
+It can be removed later when the real product UI is ready.
+
+Minimum UI tests:
+
+1. Test voice creation
+   Paste `INTERNAL_BACKEND_AUTH_TOKEN`.
+   Enter `Current User ID`.
+   Enter `Display Name`.
+   Click `Create Voice Profile`.
+
+2. Test sample upload and clone creation
+   Paste or load the `Voice Profile ID`.
+   Choose any local audio file.
+   Click `Upload Sample`.
+   Click `Finalize Clone`.
+   Confirm the returned status becomes `ready`.
+
+3. Test preview speech
+   Keep the same `Voice Profile ID`.
+   Type one short sentence into `Preview Text`.
+   Click `Generate Preview`.
+   Press play on the preview audio player.
+
+4. Test runtime speech
+   Keep the same `Current User ID`.
+   Enter any fake `Session ID`.
+   Type one short sentence into `Runtime Text`.
+   Click `Queue Speech With User ID`.
+   Wait a few seconds.
+   Click `Refresh Runtime State`.
+   Press play on the runtime audio player.
+
+5. Test cancellation
+   Queue a longer runtime message.
+   Immediately click `Cancel Current Runtime Job`.
+   Click `Refresh Runtime State`.
+   Confirm the job changes to `canceled` or `interrupted`.
+
 ## Route Contract
 
 All routes require:

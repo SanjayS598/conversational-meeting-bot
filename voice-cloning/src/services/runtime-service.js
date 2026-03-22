@@ -33,6 +33,15 @@ export class RuntimeService {
     };
   }
 
+  getJob(jobId) {
+    const job = this.store.read().speechJobs.find((item) => item.job_id === jobId);
+    if (!job) {
+      throw httpError(404, `Speech job not found: ${jobId}`);
+    }
+
+    return job;
+  }
+
   async previewSpeech(input) {
     requireFields(input, ["text"]);
     const profile = input.voice_profile_id

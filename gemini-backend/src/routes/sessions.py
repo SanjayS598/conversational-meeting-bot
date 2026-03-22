@@ -20,10 +20,12 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
+from pydantic import BaseModel
 
 from ..clients.backend import BackendClient, BackendClientError
 from ..clients.voice import VoiceClient, VoiceClientError
 from ..pipeline.audio_processor import AudioProcessor
+from ..pipeline.state_updater import StateUpdater
 from ..providers.interface import AIProvider, AudioChunk, SummaryPayload
 from ..schemas.session import (
     MeetingSummary,
@@ -36,6 +38,7 @@ from ..schemas.session import (
     StartSessionRequest,
     StartSessionResponse,
     SummaryResponse,
+    TranscriptSegment,
 )
 from ..sessions.manager import SessionManager, SessionNotFoundError
 from ..config import settings
@@ -66,6 +69,16 @@ def get_voice_client(request: Request) -> VoiceClient:
 
 def get_provider(request: Request) -> AIProvider:
     return request.app.state.provider
+
+
+def get_state_updater(request: Request) -> StateUpdater:
+    return request.app.state.state_updater
+
+
+class CaptionSegmentRequest(BaseModel):
+    speaker: str
+    text: str
+    elapsed_ms: int
 
 
 def _join_transcript_lines(transcript: list[object]) -> str:
@@ -329,6 +342,75 @@ async def audio_chunk_http(
     )
     await audio_processor.ingest(session_id, chunk)
     return {"accepted": True}
+
+
+@router.post("/{session_id}/captions", status_code=status.HTTP_202_ACCEPTED)
+async def caption_segment_http(
+    session_id: str,
+    body: CaptionSegmentRequest,
+    session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+    state_updater: Annotated[StateUpdater, Depends(get_state_updater)],
+) -> dict:
+    """
+    HTTP ingest endpoint for deduplicated Zoom caption fragments.
+
+    This is the primary transcript path for the bot: zoom-gateway scrapes Zoom's
+    built-in live captions and pushes each new caption fragment here. The
+    StateUpdater persists the transcript immediately, then Gemini updates
+    meeting notes asynchronously from the rolling transcript.
+    """
+    session = await session_manager.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Empty caption text")
+
+    timestamp_ms = max(0, body.elapsed_ms)
+    segment = TranscriptSegment(
+        session_id=session_id,
+        speaker_label=(body.speaker or "Participant").strip() or "Participant",
+        start_ms=timestamp_ms,
+        end_ms=timestamp_ms,
+        text=text,
+        confidence=0.98,
+    )
+    await state_updater.process(session_id, segment)
+    return {"accepted": True}
+
+
+@router.post("/{session_id}/end", status_code=status.HTTP_200_OK)
+async def end_session_http(
+    session_id: str,
+    session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+    audio_processor: Annotated[AudioProcessor, Depends(get_audio_processor)],
+    provider: Annotated[AIProvider, Depends(get_provider)],
+    backend_client: Annotated[BackendClient, Depends(get_backend_client)],
+) -> dict:
+    """
+    Gracefully end a session when using caption-based transcript ingestion.
+
+    Unlike the audio WebSocket path, caption mode has no WS disconnect hook to
+    flush the session, so zoom-gateway calls this endpoint during bot shutdown.
+    """
+    session = await session_manager.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    await audio_processor.stop(session_id)
+    await session_manager.end(session_id)
+    try:
+        await _ensure_summary(
+            session_id=session_id,
+            session_manager=session_manager,
+            provider=provider,
+            backend_client=backend_client,
+        )
+    except Exception as exc:
+        logger.warning("Caption-mode summary generation failed session_id=%s: %s", session_id, exc)
+
+    return {"ended": True}
 
 
 # ─── GET /brain/sessions/{session_id}/context ────────────────────────────────

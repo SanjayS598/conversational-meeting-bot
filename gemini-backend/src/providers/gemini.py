@@ -36,8 +36,10 @@ from .interface import (
 logger = logging.getLogger(__name__)
 
 # How many seconds of audio to buffer before sending for transcription.
-# 2s gives a good balance of responsiveness vs. API call frequency.
-BUFFER_SECONDS = 2.0
+# 10s gives Whisper enough context for accurate sentence-level transcription.
+# Shorter chunks (< 5s) cause frequent API calls and reduce accuracy because
+# Whisper can't pick up sentence structure from just a few words.
+BUFFER_SECONDS = 10.0
 # 16kHz, 16-bit mono = 32000 bytes/sec
 BYTES_PER_SECOND = 32000
 BUFFER_BYTES = int(BUFFER_SECONDS * BYTES_PER_SECOND)
@@ -155,6 +157,7 @@ class GeminiProvider(AIProvider):
             "buffer": bytearray(),
             "start_ms": 0,
             "lock": asyncio.Lock(),
+            "last_transcript": "",  # passed as Whisper prompt for word-boundary continuity
         }
         logger.info("Started buffered transcription session handle=%s session_id=%s", handle, session_id)
         return handle
@@ -177,13 +180,14 @@ class GeminiProvider(AIProvider):
             if len(info["buffer"]) >= BUFFER_BYTES:
                 audio_data = bytes(info["buffer"])
                 start_ms = info["start_ms"]
+                prompt = info["last_transcript"]
                 info["buffer"] = bytearray()
                 info["start_ms"] = 0
             else:
                 return  # keep buffering
 
         # Transcribe outside the lock so chunks can keep accumulating
-        await self._transcribe_buffer(handle, audio_data, start_ms, on_delta)
+        await self._transcribe_buffer(handle, audio_data, start_ms, on_delta, prompt=prompt)
 
     async def _transcribe_buffer(
         self,
@@ -191,15 +195,22 @@ class GeminiProvider(AIProvider):
         audio_data: bytes,
         start_ms: int,
         on_delta: DeltaCallback,
+        prompt: str = "",
     ) -> None:
         duration_ms = _estimate_duration_ms(audio_data)
         end_ms = start_ms + duration_ms
         try:
             # OpenAI Whisper API expects decodable audio bytes; wrap PCM in WAV.
             wav_data = _pcm_to_wav(audio_data)
-            text = await self._transcribe_wav(wav_data)
+            text = await self._transcribe_wav(wav_data, prompt=prompt)
             if not text:
                 return
+
+            # Update rolling transcript tail for next call's Whisper prompt.
+            info = self._live_sessions.get(handle)
+            if info is not None:
+                tail = (prompt + " " + text).strip()
+                info["last_transcript"] = tail[-200:]  # cap at ~200 chars
 
             delta = TranscriptDelta(
                 text=text,
@@ -215,12 +226,16 @@ class GeminiProvider(AIProvider):
         except Exception as exc:
             logger.warning("Transcription failed handle=%s: %s", handle, exc)
 
-    async def _transcribe_wav(self, wav_data: bytes) -> str:
-        response = await self._openai.audio.transcriptions.create(
+    async def _transcribe_wav(self, wav_data: bytes, prompt: str = "") -> str:
+        kwargs: dict = dict(
             model=self._whisper_model,
             file=("audio.wav", BytesIO(wav_data), "audio/wav"),
             response_format="text",
+            language="en",  # skip auto-detection; faster + more accurate for English
         )
+        if prompt:
+            kwargs["prompt"] = prompt  # improves word-boundary accuracy at segment edges
+        response = await self._openai.audio.transcriptions.create(**kwargs)
         # response_format="text" returns a plain string
         return response.strip() if isinstance(response, str) else str(response).strip()
 
@@ -259,11 +274,38 @@ class GeminiProvider(AIProvider):
             response_candidate=response_candidate_json,
         )
 
-    async def end_live_session(self, handle: str) -> None:
+    async def end_live_session(self, handle: str, on_delta: DeltaCallback | None = None) -> None:
         info = self._live_sessions.pop(handle, None)
         if info is None:
             return
-        # Discard any remaining buffered audio (session is ending)
+
+        # Flush any remaining buffered audio so the transcript isn't cut short.
+        # With a 10s buffer, up to 10s of speech could be lost without this.
+        async with info["lock"]:
+            remaining = bytes(info["buffer"])
+            start_ms = info["start_ms"]
+            prompt = info["last_transcript"]
+
+        if remaining and on_delta:
+            duration_ms = _estimate_duration_ms(remaining)
+            end_ms = start_ms + duration_ms
+            try:
+                wav_data = _pcm_to_wav(remaining)
+                text = await self._transcribe_wav(wav_data, prompt=prompt)
+                if text:
+                    delta = TranscriptDelta(
+                        text=text,
+                        speaker_label="Participant",
+                        start_ms=start_ms,
+                        end_ms=end_ms,
+                        confidence=0.90,
+                        is_final=True,
+                    )
+                    await on_delta(delta)
+                    logger.debug("Flushed final %d bytes → %d chars handle=%s", len(remaining), len(text), handle)
+            except Exception as exc:
+                logger.warning("Final buffer flush failed handle=%s: %s", handle, exc)
+
         logger.info("Ended buffered transcription session handle=%s", handle)
 
     async def generate_meeting_summary(self, payload: SummaryPayload) -> SummaryResult:

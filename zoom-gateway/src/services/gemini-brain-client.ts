@@ -12,6 +12,7 @@
 import axios from 'axios';
 import WebSocket from 'ws';
 import { config } from '../config';
+import type { CaptionEvent } from './zoom-joiner';
 
 interface BrainSession {
   sessionId: string;
@@ -25,7 +26,7 @@ export class GeminiBrainClient {
 
   /**
    * Start a Gemini brain session for the given meeting session.
-   * Creates the REST session then opens the audio WebSocket.
+    * Creates the REST session. Transcript ingestion happens via caption events.
    */
   async startSession(
     sessionId: string,
@@ -59,53 +60,49 @@ export class GeminiBrainClient {
       return;
     }
 
-    // Open audio WebSocket
-    this._openAudioSocket(sessionId, brainUrl);
   }
 
   /** Forward raw PCM audio (int16 array) to the Gemini audio WebSocket. */
   sendAudio(sessionId: string, int16Array: number[]): void {
-    const s = this.sessions.get(sessionId);
-    if (!s) return;
+    void sessionId;
+    void int16Array;
+  }
 
-    // Pack int16 values into a Buffer (little-endian)
-    const buf = Buffer.allocUnsafe(int16Array.length * 2);
-    for (let i = 0; i < int16Array.length; i++) {
-      buf.writeInt16LE(int16Array[i], i * 2);
-    }
-
-    if (s.connected && s.ws?.readyState === WebSocket.OPEN) {
-      s.ws.send(buf);
-    } else {
-      // Buffer while connecting
-      s.buffer.push(buf);
-    }
+  /** Forward a deduplicated Zoom caption fragment to the brain service. */
+  async sendCaption(sessionId: string, caption: CaptionEvent): Promise<void> {
+    const brainUrl = config.geminiServiceUrl;
+    await axios.post(
+      `${brainUrl}/brain/sessions/${sessionId}/captions`,
+      {
+        speaker: caption.speaker,
+        text: caption.text,
+        elapsed_ms: caption.elapsed_ms,
+      },
+      {
+        headers: { Authorization: `Bearer ${config.internalServiceSecret}` },
+        timeout: 5_000,
+      },
+    );
   }
 
   /** Gracefully stop the brain session for the given meeting session. */
   async stopSession(sessionId: string): Promise<void> {
     const s = this.sessions.get(sessionId);
-    if (!s) return;
+    if (s) this.sessions.delete(sessionId);
 
-    this.sessions.delete(sessionId);
-
-    if (!s.ws) {
-      return;
-    }
-
-    if (s.ws.readyState === WebSocket.OPEN) {
-      try {
-        const closed = new Promise<void>((resolve) => {
-          const finish = () => resolve();
-          s.ws?.once('close', finish);
-          setTimeout(finish, 3_000);
-        });
-        s.ws.send(JSON.stringify({ type: 'stop' }));
-        s.ws.close();
-        await closed;
-      } catch {
-        // Ignore close errors
-      }
+    const brainUrl = config.geminiServiceUrl;
+    try {
+      await axios.post(
+        `${brainUrl}/brain/sessions/${sessionId}/end`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${config.internalServiceSecret}` },
+          timeout: 10_000,
+        },
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[GeminiBrainClient] Failed to end brain session ${sessionId}: ${msg}`);
     }
   }
 
@@ -131,6 +128,14 @@ export class GeminiBrainClient {
     });
     session.ws = ws;
 
+    // Keep the connection alive — send a WebSocket ping every 30s so the
+    // server-side keepalive timer (uvicorn default ~60s) never fires.
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 30_000);
+
     ws.on('open', () => {
       session.connected = true;
       console.log(`[GeminiBrainClient] Audio WS connected session=${sessionId}`);
@@ -143,6 +148,7 @@ export class GeminiBrainClient {
     });
 
     ws.on('close', (code, reason) => {
+      clearInterval(pingInterval);
       console.log(
         `[GeminiBrainClient] Audio WS closed session=${sessionId} code=${code} reason=${reason}`,
       );

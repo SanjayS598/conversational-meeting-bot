@@ -60,7 +60,12 @@ class SessionManager {
     const joiner = new ZoomJoiner(session.id, {
       onAudioChunk: (int16Array) => {
         this.broadcastAudioChunk(session.id, int16Array);
-        geminiBrainClient.sendAudio(session.id, int16Array);
+      },
+      onCaption: (caption) => {
+        void geminiBrainClient.sendCaption(session.id, caption).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[SessionManager] Caption send failed for ${session.id}: ${msg}`);
+        });
       },
       onStatusChange: (status, error) => {
         this.updateStatus(session.id, status, error);

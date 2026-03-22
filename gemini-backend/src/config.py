@@ -21,8 +21,15 @@ class Settings(BaseSettings):
     # ── Google Gemini ──────────────────────────────────────────────────────────
     gemini_api_key: str = Field(..., description="Google AI Studio API key")
 
-    # ── OpenAI Whisper STT ───────────────────────────────────────────────────
-    openai_api_key: str = Field(..., description="OpenAI API key for Whisper STT")
+    # ── Deepgram streaming STT (preferred — instant transcription) ────────────
+    # If set, Deepgram Nova-2 streaming is used instead of Whisper batch.
+    deepgram_api_key: str = Field(
+        default="",
+        description="Deepgram API key for Nova-2 streaming STT (optional; falls back to Whisper)",
+    )
+
+    # ── OpenAI Whisper STT (fallback when no Deepgram key) ───────────────────
+    openai_api_key: str = Field(default="", description="OpenAI API key for Whisper STT fallback")
     whisper_model: str = Field(default="whisper-1", description="OpenAI Whisper model name")
 
     # ── Internal Auth ─────────────────────────────────────────────────────────

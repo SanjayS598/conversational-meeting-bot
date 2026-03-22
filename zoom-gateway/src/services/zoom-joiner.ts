@@ -288,9 +288,16 @@ const DISMISS_DIALOG_SELECTORS = [
 
 // ---------------------------------------------------------------------------
 
+export interface CaptionEvent {
+  speaker: string;
+  text: string;
+  elapsed_ms: number;
+}
+
 export interface ZoomJoinerCallbacks {
   onAudioChunk: (int16Array: number[]) => void;
   onStatusChange: (status: SessionStatus, error?: string) => void;
+  onCaption?: (event: CaptionEvent) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -381,6 +388,11 @@ export class ZoomJoiner {
 
     this.callbacks.onStatusChange('joined');
     this.startEndMonitor();
+    // Start caption scraping immediately after joining — fire-and-forget.
+    // This replaces audio-based STT: Zoom's own captions are instant.
+    this.startCaptionScraper().catch((err) =>
+      this.log(`captionScraper startup error: ${err}`, 'warn'),
+    );
   }
 
   async injectAudio(int16Array: number[]): Promise<void> {
@@ -1007,6 +1019,317 @@ export class ZoomJoiner {
       }
     }
     return null;
+  }
+
+  // ── Caption scraping ───────────────────────────────────────────────────────
+
+  /**
+   * Enable Zoom live captions and stream them to onCaption callback.
+   *
+   * Strategy (mirrors the Recall.ai blog approach):
+   *  1. Click the "Live Transcript" / "Closed Caption" toolbar button to enable captions.
+   *  2. Build a participantMap: avatar-image-src / initials-text → display name.
+   *  3. Inject a MutationObserver for all [class*="live-transcription"] containers.
+   *  4. On every mutation, extract visible text + speaker avatar, deduplicate with
+   *     a per-speaker sliding-window (find the overlap between old and new text),
+   *     and emit only the NEW words.
+   */
+  private async startCaptionScraper(): Promise<void> {
+    if (!this.callbacks.onCaption) return;
+    if (!this.page || this.page.isClosed()) return;
+
+    const joinedAt = Date.now();
+
+    // ── Step 1: Enable live captions ──────────────────────────────────────
+    await this.enableLiveCaptions();
+
+    // ── Step 2: Expose Node.js caption receiver to the browser ────────────
+    await this.page.exposeFunction(
+      '__onCaption',
+      (speaker: string, text: string) => {
+        if (this.callbacks.onCaption) {
+          this.callbacks.onCaption({
+            speaker,
+            text,
+            elapsed_ms: Date.now() - joinedAt,
+          });
+        }
+      },
+    );
+
+    // ── Step 3: Build participant map + install MutationObserver in page ──
+    try {
+      await this.page.evaluate(() => {
+        // ── Participant name map ─────────────────────────────────────────
+        // Maps avatar key (image url or initials text) → display name.
+        const participantMap: Record<string, string> = {};
+
+        function refreshParticipantMap() {
+          // Try multiple selectors for the participants panel
+          const nameEls = document.querySelectorAll(
+            '.participants-item__display-name, [class*="participants-item__name"], [class*="participants__name"]'
+          );
+          nameEls.forEach((nameEl) => {
+            const item = nameEl.closest(
+              '.participants-item, [class*="participants-item"]'
+            );
+            if (!item) return;
+            const name = (nameEl as HTMLElement).innerText?.trim();
+            if (!name) return;
+            // Image avatar
+            const img = item.querySelector('img');
+            if (img && img.src) participantMap[img.src] = name;
+            // Initials avatar
+            const initials = item.querySelector(
+              '[class*="avatar__initials"], [class*="initials"]'
+            );
+            if (initials) {
+              const key = (initials as HTMLElement).innerText?.trim();
+              if (key) participantMap[key] = name;
+            }
+          });
+        }
+
+        // Open participants panel and observe changes
+        (function openAndObserveParticipants() {
+          const btn = document.querySelector<HTMLElement>(
+            'button[aria-label*="participants" i], [class*="participants-btn"]'
+          );
+          if (btn) btn.click();
+          refreshParticipantMap();
+
+          const panel = document.querySelector(
+            '[class*="participants"], .participants-list'
+          );
+          if (panel) {
+            new MutationObserver(refreshParticipantMap).observe(panel, {
+              childList: true,
+              subtree: true,
+              characterData: true,
+            });
+          } else {
+            // Retry in 2 s if panel not yet rendered
+            setTimeout(openAndObserveParticipants, 2000);
+          }
+        })();
+
+        // ── Caption deduplication per speaker ────────────────────────────
+        // Tracks the last emitted text for each speaker key.
+        const lastEmitted: Record<string, string> = {};
+
+        function findNewText(oldText: string, newText: string): string {
+          if (!oldText) return newText.trim();
+          // Simple append: "Hello" → "Hello world" → emit " world"
+          if (newText.startsWith(oldText)) {
+            return newText.slice(oldText.length).trim();
+          }
+          // Sliding window: find longest suffix of oldText that is a prefix of newText
+          for (let i = Math.min(oldText.length, newText.length); i > 0; i--) {
+            if (newText.startsWith(oldText.slice(-i))) {
+              const novel = newText.slice(i).trim();
+              return novel;
+            }
+          }
+          // No overlap: completely new utterance
+          return newText.trim();
+        }
+
+        function getSpeakerName(captionContainer: Element): string {
+          // Try image avatar
+          const img = captionContainer.querySelector('img');
+          if (img && img.src && participantMap[img.src]) {
+            return participantMap[img.src];
+          }
+          // Try initials avatar
+          const initials = captionContainer.querySelector(
+            '[class*="avatar__initials"], [class*="initials"]'
+          );
+          if (initials) {
+            const key = (initials as HTMLElement).innerText?.trim();
+            if (key && participantMap[key]) return participantMap[key];
+            if (key) return key; // fallback to initials
+          }
+          // Try aria-label on the avatar
+          const avatar = captionContainer.querySelector('[aria-label]');
+          if (avatar) {
+            const label = avatar.getAttribute('aria-label')?.trim();
+            if (label) return label;
+          }
+          return 'Participant';
+        }
+
+        // ── MutationObserver for caption containers ───────────────────────
+        function observeCaptions() {
+          const containers = document.querySelectorAll(
+            '[class*="live-transcription"], [class*="caption"]'
+          );
+
+          if (containers.length === 0) {
+            // Captions not yet rendered — retry in 1 s
+            setTimeout(observeCaptions, 1000);
+            return;
+          }
+
+          containers.forEach((container) => {
+            const observer = new MutationObserver(() => {
+              // Each caption item span holds the current visible text
+              const spans = container.querySelectorAll(
+                '[class*="subtitle__item"], [class*="caption-line"], [class*="transcription-subtitle"]'
+              );
+              const speaker = getSpeakerName(container);
+              const speakerKey = speaker + '|' + (container as HTMLElement).dataset._zgKey;
+
+              spans.forEach((span) => {
+                const currentText = (span as HTMLElement).innerText?.trim();
+                if (!currentText) return;
+                const novel = findNewText(lastEmitted[speakerKey] ?? '', currentText);
+                if (novel) {
+                  lastEmitted[speakerKey] = currentText;
+                  const fn = (window as unknown as Record<string, unknown>).__onCaption as ((s: string, t: string) => void)|undefined;
+                  if (fn) fn(speaker, novel);
+                }
+              });
+            });
+
+            // Tag container so we can build a stable per-speaker key
+            (container as HTMLElement).dataset._zgKey = Math.random().toString(36).slice(2);
+            observer.observe(container, {
+              childList: true,
+              subtree: true,
+              characterData: true,
+            });
+          });
+
+          // Also observe the parent for new caption containers appearing mid-meeting
+          const parent = containers[0].parentElement;
+          if (parent) {
+            new MutationObserver(() => observeCaptions()).observe(parent, {
+              childList: true,
+            });
+          }
+        }
+
+        observeCaptions();
+      });
+    } catch (err) {
+      this.log(`captionScraper: evaluate error: ${err}`, 'warn');
+    }
+
+    this.log('Caption scraper installed');
+  }
+
+  /**
+   * Click the "Live Transcript" button in the toolbar to enable Zoom's
+   * built-in closed captions (uses Zoom's own ASR — instant, free).
+   */
+  private async enableLiveCaptions(): Promise<void> {
+    if (!this.page || this.page.isClosed()) return;
+
+    // Wait a moment for toolbar to settle after joining
+    await this.sleep(2000);
+
+    const captionButtonSelectors = [
+      'button[aria-label*="transcript" i]',
+      'button[aria-label*="closed caption" i]',
+      'button[aria-label*="live transcript" i]',
+      '[class*="caption-btn"]',
+      '[class*="live-transcript"]',
+    ];
+
+    // It might be in the "More" overflow menu
+    const moreSelectors = [
+      'button[aria-label*="More" i]',
+      '[class*="more-button"]',
+      'button[aria-label*="see more options" i]',
+    ];
+
+    // First try directly
+    let clicked = false;
+    for (const sel of captionButtonSelectors) {
+      try {
+        const el = await this.page.$(sel);
+        if (!el) continue;
+        const visible = await el.evaluate((e) => {
+          const r = e.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        });
+        if (visible) {
+          await el.click();
+          this.log(`enableLiveCaptions: clicked "${sel}"`);
+          clicked = true;
+          break;
+        }
+      } catch { /* try next */ }
+    }
+
+    if (!clicked) {
+      // Try opening "More" overflow first
+      for (const moreSel of moreSelectors) {
+        try {
+          const moreEl = await this.page.$(moreSel);
+          if (!moreEl) continue;
+          const visible = await moreEl.evaluate((e) => {
+            const r = e.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          });
+          if (visible) {
+            await moreEl.click();
+            await this.sleep(800);
+            // Now try caption buttons inside the opened menu
+            for (const sel of captionButtonSelectors) {
+              try {
+                const el = await this.page.$(sel);
+                if (!el) continue;
+                const v = await el.evaluate((e) => {
+                  const r = e.getBoundingClientRect();
+                  return r.width > 0 && r.height > 0;
+                });
+                if (v) {
+                  await el.click();
+                  this.log(`enableLiveCaptions: clicked via More menu "${sel}"`);
+                  clicked = true;
+                  break;
+                }
+              } catch { /* try next */ }
+            }
+            break;
+          }
+        } catch { /* try next */ }
+      }
+    }
+
+    if (!clicked) {
+      // Try text-based fallback — look for any button with "caption" or "transcript" text
+      const fallbackClicked = await this.safePageEval(() => {
+        const btn = Array.from(
+          document.querySelectorAll<HTMLElement>('button, [role="button"]')
+        ).find((b) =>
+          /transcript|caption/i.test(b.getAttribute('aria-label') ?? '') ||
+          /transcript|caption/i.test(b.textContent ?? '')
+        );
+        if (btn) { btn.click(); return true; }
+        return false;
+      });
+      clicked = fallbackClicked === true;
+      if (clicked) this.log('enableLiveCaptions: clicked via text fallback');
+    }
+
+    if (!clicked) {
+      this.log('enableLiveCaptions: could not find caption button — captions may already be on or unavailable', 'warn');
+    }
+
+    // After clicking, Zoom may show a submenu: "Enable auto-transcription" / "View captions"
+    await this.sleep(800);
+    await this.safePageEval(() => {
+      const enables = Array.from(
+        document.querySelectorAll<HTMLElement>('button, [role="menuitem"], li')
+      ).filter((el) =>
+        /enable.*transcript|auto.transcri|start.*caption|view.*transcript/i.test(
+          (el as HTMLElement).innerText ?? ''
+        )
+      );
+      enables[0]?.click();
+    });
   }
 
   // ── Meeting-ended detection ───────────────────────────────────────────────

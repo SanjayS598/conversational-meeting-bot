@@ -50,10 +50,9 @@ class StateUpdater:
 
         Steps:
           1. Load session from Redis
-          2. Build rolling transcript context
-          3. Run LangGraph graph
-          4. Persist updated state
-          5. Push to Control Backend
+          2. Immediately persist transcript segment to DB (fast path — unblocks UI)
+          3. Run LangGraph / Gemini graph for notes update (slow path — background)
+          4. Persist updated meeting state and push to Control Backend
         """
         try:
             session = await self._session_manager.get_or_raise(session_id)
@@ -61,6 +60,18 @@ class StateUpdater:
             logger.warning("StateUpdater: session not found session_id=%s", session_id)
             return
 
+        # ── Fast path: save transcript segment immediately ─────────────────────
+        # This runs BEFORE Gemini so the transcript appears in the UI as soon as
+        # possible, regardless of how long the AI notes update takes.
+        await self._session_manager.append_transcript_segment(session_id, new_segment)
+        try:
+            await self._backend_client.save_transcript_segment(new_segment)
+        except Exception as exc:
+            logger.warning(
+                "Failed to push transcript segment session_id=%s: %s", session_id, exc
+            )
+
+        # ── Slow path: Gemini notes update ────────────────────────────────────
         # Build rolling transcript text (last ROLLING_WINDOW segments)
         recent = session.transcript[-ROLLING_WINDOW:]
         recent_text = "\n".join(
@@ -88,11 +99,9 @@ class StateUpdater:
             logger.error(
                 "LangGraph pipeline failed session_id=%s: %s", session_id, exc
             )
-            # Still persist the raw segment even if AI pipeline fails
-            await self._persist_segment_only(session_id, new_segment)
             return
 
-        # ── Persist to Redis ───────────────────────────────────────────────────
+        # ── Persist AI results to Redis ────────────────────────────────────────
 
         updated_meeting = result.get("updated_meeting_state") or session.meeting
         final_response = result.get("final_response")
@@ -102,7 +111,6 @@ class StateUpdater:
             updated_meeting.last_agent_response_at = int(time.time() * 1000)
 
         await self._session_manager.update_meeting_state(session_id, updated_meeting)
-        await self._session_manager.append_transcript_segment(session_id, new_segment)
         await self._session_manager.set_pending_response(session_id, final_response)
 
         if final_response is not None:
@@ -118,16 +126,7 @@ class StateUpdater:
                 "No response for session_id=%s reason=%s", session_id, reason
             )
 
-        # ── Push to Control Backend ────────────────────────────────────────────
-
-        try:
-            await self._backend_client.save_transcript_segment(new_segment)
-        except Exception as exc:
-            logger.warning(
-                "Failed to push transcript segment to backend session_id=%s: %s",
-                session_id,
-                exc,
-            )
+        # ── Push notes + optional response to Control Backend ─────────────────
 
         try:
             await self._backend_client.save_meeting_state(updated_meeting)

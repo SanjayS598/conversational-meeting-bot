@@ -94,6 +94,6 @@ class AIProvider(ABC):
         ...
 
     @abstractmethod
-    async def end_live_session(self, handle: str) -> None:
-        """End a live session cleanly."""
+    async def end_live_session(self, handle: str, on_delta: DeltaCallback | None = None) -> None:
+        """End a live session cleanly, flushing any remaining buffered audio."""
         ...

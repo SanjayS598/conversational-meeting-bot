@@ -29,6 +29,7 @@ from .clients.voice import VoiceClient
 from .config import settings
 from .pipeline.audio_processor import AudioProcessor
 from .pipeline.state_updater import StateUpdater
+from .providers.deepgram_provider import DeepgramProvider
 from .providers.gemini import GeminiProvider
 from .routes.sessions import router as sessions_router
 from .sessions.manager import SessionManager
@@ -90,11 +91,21 @@ def create_app() -> FastAPI:
             raise RuntimeError(f"Redis unavailable: {exc}") from exc
 
         # Build components
-        provider = GeminiProvider(
-            api_key=settings.gemini_api_key,
-            openai_api_key=settings.openai_api_key,
-            whisper_model=settings.whisper_model,
-        )
+        if settings.deepgram_api_key:
+            provider = DeepgramProvider(
+                deepgram_api_key=settings.deepgram_api_key,
+                gemini_api_key=settings.gemini_api_key,
+                openai_api_key=settings.openai_api_key,
+                whisper_model=settings.whisper_model,
+            )
+            logger.info("STT provider: Deepgram Nova-2 streaming (instant transcription)")
+        else:
+            provider = GeminiProvider(
+                api_key=settings.gemini_api_key,
+                openai_api_key=settings.openai_api_key,
+                whisper_model=settings.whisper_model,
+            )
+            logger.info("STT provider: OpenAI Whisper batch (set DEEPGRAM_API_KEY for instant STT)")
         session_manager = SessionManager(redis_client)
         backend_client = BackendClient(
             base_url=settings.backend_url,

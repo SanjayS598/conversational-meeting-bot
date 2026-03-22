@@ -130,21 +130,28 @@ class AudioProcessor:
 
     async def stop(self, session_id: str) -> None:
         """Close the Gemini Live session and finalize any remaining buffer."""
-        # Finalize any remaining deltas
+        # Finalize any pending deltas accumulated so far
         if self._pending_deltas.get(session_id):
             await self._finalize_pending(session_id)
 
         handle = self._handles.pop(session_id, None)
-        self._pending_deltas.pop(session_id, None)
-        self._last_delta_at.pop(session_id, None)
 
         if handle:
+            # Pass on_delta so end_live_session can flush the PCM buffer and
+            # emit any final transcript segment (avoids losing the last ~10s of audio).
+            async def on_delta(delta: TranscriptDelta) -> None:
+                await self._handle_delta(session_id, delta)
+
             try:
-                await self._provider.end_live_session(handle)
+                await self._provider.end_live_session(handle, on_delta)
             except Exception as exc:
                 logger.warning(
                     "Error stopping live session session_id=%s: %s", session_id, exc
                 )
+
+        # Clean up after the flush so any segment emitted above is already sent
+        self._pending_deltas.pop(session_id, None)
+        self._last_delta_at.pop(session_id, None)
 
         logger.info("AudioProcessor stopped session_id=%s", session_id)
 

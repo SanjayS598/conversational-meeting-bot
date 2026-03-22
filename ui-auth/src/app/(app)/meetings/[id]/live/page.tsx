@@ -99,7 +99,7 @@ export default function LiveMeetingPage({ params }: Props) {
         // Fall back to trying start anyway
         await fetch(`/api/meetings/${sessionId}/start`, { method: "POST" }).catch(() => {});
       }
-      pollRef.current = setInterval(() => fetchLiveState(sessionId!), 2000);
+      pollRef.current = setInterval(() => fetchLiveState(sessionId!), 500);
     }
 
     init();

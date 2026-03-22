@@ -32,7 +32,8 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Public routes that do not require auth
-  const publicPaths = ["/login", "/auth/callback"];
+  // /api/internal is protected by INTERNAL_SERVICE_TOKEN Bearer auth, not Supabase sessions
+  const publicPaths = ["/login", "/auth/callback", "/api/internal"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   if (!user && !isPublic) {

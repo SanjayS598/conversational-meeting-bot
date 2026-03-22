@@ -27,6 +27,32 @@ import { parseZoomUrl } from '../utils/zoom-url';
 import type { SessionStatus } from '../types/index';
 
 // ---------------------------------------------------------------------------
+// AudioWorklet processor for capturing inbound meeting audio.
+// Defined as a separate constant so it can be JSON-embedded into PRELOAD_SCRIPT
+// without creating a nested template literal (which TypeScript can't parse).
+// Buffers Float32 samples and posts Int16 chunks every 100 ms (1600 samples @ 16 kHz).
+// ---------------------------------------------------------------------------
+const AUDIO_WORKLET_CODE = [
+  'class CaptureProcessor extends AudioWorkletProcessor {',
+  '  constructor() { super(); this._buf = []; }',
+  '  process(inputs) {',
+  '    const ch = inputs[0]?.[0]; if (!ch) return true;',
+  '    for (let i = 0; i < ch.length; i++) this._buf.push(ch[i]);',
+  '    const CHUNK = 1600;',
+  '    while (this._buf.length >= CHUNK) {',
+  '      const f32 = this._buf.splice(0, CHUNK);',
+  '      const i16 = new Int16Array(CHUNK);',
+  '      for (let i = 0; i < CHUNK; i++)',
+  '        i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768));',
+  '      this.port.postMessage(i16.buffer, [i16.buffer]);',
+  '    }',
+  '    return true;',
+  '  }',
+  '}',
+  "registerProcessor('zoom-capture', CaptureProcessor);",
+].join('\n');
+
+// ---------------------------------------------------------------------------
 // Preload script — injected into EVERY frame before any page JS runs.
 //
 //  1. Stealth   — hides Puppeteer/headless fingerprints.
@@ -57,30 +83,31 @@ const PRELOAD_SCRIPT = /* js */ `
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (Ctx && window.RTCPeerConnection) {
       const captureCtx = new Ctx({ sampleRate: 16000 });
-      const CHUNK_SIZE = 1600; // 100 ms @ 16 kHz mono
+
+      // AUDIO_WORKLET_CODE is JSON-embedded at build time to avoid nested backtick
+      // syntax inside this template literal. The blob URL approach lets us load the
+      // processor without needing a separate file served from a URL.
+      const blobUrl = URL.createObjectURL(
+        new Blob([${JSON.stringify(AUDIO_WORKLET_CODE)}], { type: 'application/javascript' })
+      );
 
       const OrigPC = window.RTCPeerConnection;
       window.RTCPeerConnection = class extends OrigPC {
         constructor(...args) {
           super(...args);
-          this.addEventListener('track', (ev) => {
+          this.addEventListener('track', async (ev) => {
             if (ev.track.kind !== 'audio') return;
             try {
-              captureCtx.resume();
-              const src = captureCtx.createMediaStreamSource(
-                new MediaStream([ev.track])
-              );
-              const proc = captureCtx.createScriptProcessor(CHUNK_SIZE, 1, 1);
-              proc.onaudioprocess = (e) => {
-                const f32 = e.inputBuffer.getChannelData(0);
-                const i16 = new Int16Array(f32.length);
-                for (let i = 0; i < f32.length; i++) {
-                  i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768));
-                }
+              await captureCtx.resume();
+              await captureCtx.audioWorklet.addModule(blobUrl);
+              const src = captureCtx.createMediaStreamSource(new MediaStream([ev.track]));
+              const node = new AudioWorkletNode(captureCtx, 'zoom-capture');
+              node.port.onmessage = (e) => {
+                const i16 = new Int16Array(e.data);
                 if (window.__onAudioChunk) window.__onAudioChunk(Array.from(i16));
               };
-              src.connect(proc);
-              proc.connect(captureCtx.destination);
+              src.connect(node);
+              // Do not connect to destination — we don't want loopback audio
             } catch (err) {
               console.error('[ZG] audio capture error', err);
             }
@@ -205,6 +232,13 @@ const AUDIO_BTN_SELECTORS = [
   '[data-testid="joinVoIPBtn"]',
   'button.join-audio__join-btn',
   'button.voip-button',
+];
+
+/** Submit button for the post-join passcode modal */
+const PASSCODE_SUBMIT_SELECTORS = [
+  'button.zm-btn--primary',
+  'button[data-testid="passcodeSubmit"]',
+  'button#submitPasscode',
 ];
 
 /**
@@ -368,14 +402,16 @@ export class ZoomJoiner {
       clearInterval(this.endMonitorTimer);
       this.endMonitorTimer = null;
     }
+    // Grab refs and null them immediately so re-entrant calls are no-ops
+    const browser = this.browser;
+    this.page = null;
+    this.browser = null;
     try {
-      if (this.page && !this.page.isClosed()) await this.page.close();
-      if (this.browser) await this.browser.close();
+      // Close the whole browser (closes all pages) — skipping page.close() first
+      // avoids hangs when the page is in a stuck/crashed state.
+      if (browser) await browser.close();
     } catch (err) {
       this.log(`cleanup error: ${err}`, 'error');
-    } finally {
-      this.page = null;
-      this.browser = null;
     }
   }
 
@@ -530,7 +566,7 @@ export class ZoomJoiner {
     // We poll for all of these and react accordingly rather than sleeping
     // a fixed amount and guessing what state we're in.
     this.log('Step: waitForPostJoin');
-    await this.runPostJoinStateMachine();
+    await this.runPostJoinStateMachine(passcode);
 
     this.log('Step: done — bot is in the meeting');
   }
@@ -753,7 +789,7 @@ export class ZoomJoiner {
    * from Zoom's loading overlay, which briefly contains "please wait"-like
    * text in hidden DOM nodes before the meeting room renders.
    */
-  private async runPostJoinStateMachine(): Promise<void> {
+  private async runPostJoinStateMachine(passcode?: string): Promise<void> {
     const TIMEOUT = 5 * 60_000; // wait up to 5 min (covers waiting-room scenarios)
     const POLL = 1000;
     const now = Date.now();
@@ -764,6 +800,7 @@ export class ZoomJoiner {
     const WAITING_ROOM_CHECK_AFTER = now + 10_000;
 
     let inWaitingRoom = false;
+    let passcodeFilled = false; // only attempt post-join passcode once
     const deadline = now + TIMEOUT;
 
     await this.saveScreenshot('after-join-click');
@@ -795,6 +832,39 @@ export class ZoomJoiner {
       // ③ Dismiss any modal dialogs (camera error, feature announcements)
       await this.dismissModals();
 
+      // ④ Check for post-join passcode modal (Zoom sometimes asks for passcode
+      //    as a separate dialog AFTER clicking Join, even if we filled the
+      //    pre-join form field — e.g. when pwd= isn't embedded in the URL)
+      if (!passcodeFilled) {
+        const askedForPasscode = await this.detectPasscodePrompt();
+        if (askedForPasscode) {
+          passcodeFilled = true; // prevent infinite retry loops
+          if (passcode) {
+            this.log('Post-join: passcode modal detected — filling passcode');
+            const filled = await this.findAndFillInput(
+              PASSCODE_SELECTORS,
+              (_p, type) => type === 'password',
+              passcode,
+              'postJoinPasscode',
+              5_000,
+            );
+            if (filled) {
+              await this.sleep(200);
+              await this.findAndClickButton(
+                PASSCODE_SUBMIT_SELECTORS,
+                /^(submit|ok|join)$/i,
+                'passcodeSubmit',
+                5_000,
+              );
+            }
+          } else {
+            this.log('Post-join: passcode modal detected but no passcode provided — skipping', 'warn');
+          }
+          await this.sleep(1000);
+          continue;
+        }
+      }
+
       // ④ Check for actual waiting room (only after settle period)
       if (Date.now() > WAITING_ROOM_CHECK_AFTER) {
         const nowInWaitingRoom = await this.detectActualWaitingRoom();
@@ -814,6 +884,30 @@ export class ZoomJoiner {
 
     this.log('Post-join state machine: 5-min timeout — proceeding anyway', 'warn');
     await this.saveScreenshot('post-join-timeout');
+  }
+
+  /**
+   * Returns true if Zoom has shown a passcode-required dialog after the
+   * Join button was clicked (separate from the pre-join form passcode field).
+   */
+  private async detectPasscodePrompt(): Promise<boolean> {
+    if (!this.page || this.page.isClosed()) return false;
+    for (const frame of this.page.frames()) {
+      if (frame.isDetached()) continue;
+      try {
+        const found: boolean = await frame.evaluate(() => {
+          const text = (document.body as HTMLElement)?.innerText ?? '';
+          return (
+            /enter.*meeting passcode/i.test(text) ||
+            /passcode.*required/i.test(text) ||
+            /incorrect passcode/i.test(text) ||
+            /this meeting requires a passcode/i.test(text)
+          );
+        });
+        if (found) return true;
+      } catch { /* detached */ }
+    }
+    return false;
   }
 
   /**
@@ -922,22 +1016,52 @@ export class ZoomJoiner {
       if (!this.page || this.page.isClosed()) {
         clearInterval(this.endMonitorTimer!);
         this.endMonitorTimer = null;
+        this.log('endMonitor: page is closed/null — firing ended');
         this.callbacks.onStatusChange('ended');
         return;
       }
 
       try {
-        const ended = await this.safePageEval(() => {
-          const body = document.body?.textContent ?? '';
-          return (
-            body.includes('This meeting has been ended') ||
-            body.includes('The meeting has been ended') ||
-            body.includes('Left the meeting') ||
-            document.title.toLowerCase().includes('meeting ended')
-          );
+        const result = await this.safePageEval(() => {
+          // Use innerText (rendered/visible text only) — textContent includes hidden
+          // DOM template elements that Zoom pre-renders, causing false positives.
+          const visibleText = (document.body as HTMLElement)?.innerText ?? '';
+          const title = document.title.toLowerCase();
+
+          // Primary: check if the in-meeting toolbar has disappeared
+          const toolbarGone =
+            !document.querySelector('button[aria-label*="Mute" i]') &&
+            !document.querySelector('button[aria-label*="Unmute" i]') &&
+            !document.querySelector('.footer-button__button') &&
+            !document.querySelector('[class*="footer-button"]') &&
+            !document.querySelector('[class*="meeting-footer"]');
+
+          // Secondary: check for visible "meeting ended" text or page title
+          const endedText =
+            visibleText.includes('This meeting has been ended') ||
+            visibleText.includes('The meeting has been ended') ||
+            title.includes('meeting ended');
+
+          return {
+            toolbarGone,
+            endedText,
+            titleSnippet: title.slice(0, 80),
+          };
         });
 
+        // Only fire ended if BOTH signals agree, OR if explicit ended text is visible.
+        // Requiring toolbarGone prevents false positives from hidden DOM templates.
+        const ended = result && (
+          (result.toolbarGone && result.endedText) ||
+          result.endedText
+        );
+
+        if (result?.toolbarGone || result?.endedText) {
+          this.log(`endMonitor: toolbarGone=${result.toolbarGone} endedText=${result.endedText} title="${result.titleSnippet}"`);
+        }
+
         if (ended) {
+          this.log('endMonitor: meeting ended confirmed — cleaning up');
           clearInterval(this.endMonitorTimer!);
           this.endMonitorTimer = null;
           await this.cleanup();

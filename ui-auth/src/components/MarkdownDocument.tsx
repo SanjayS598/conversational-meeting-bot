@@ -81,7 +81,7 @@ export function MarkdownDocument({ markdown }: { markdown: string }) {
             <ul key={index} className="space-y-2">
               {block.items.map((item, itemIndex) => (
                 <li key={itemIndex} className="flex gap-2 text-sm text-slate-200 leading-relaxed">
-                  <span className="text-indigo-400 mt-0.5">•</span>
+                  <span className="text-[#6DD8F0] mt-0.5">•</span>
                   <span>{item}</span>
                 </li>
               ))}

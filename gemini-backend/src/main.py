@@ -92,9 +92,8 @@ def create_app() -> FastAPI:
         # Build components
         provider = GeminiProvider(
             api_key=settings.gemini_api_key,
+            openai_api_key=settings.openai_api_key,
             whisper_model=settings.whisper_model,
-            whisper_device=settings.whisper_device,
-            whisper_compute_type=settings.whisper_compute_type,
         )
         session_manager = SessionManager(redis_client)
         backend_client = BackendClient(

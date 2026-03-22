@@ -211,6 +211,7 @@ class SessionManager {
   /** Best-effort push of session state to the Control Backend. */
   private async notifyControlBackend(session: Session): Promise<void> {
     try {
+      console.log(`[SessionManager] notifyControlBackend session=${session.id} status=${session.status}`);
       await axios.post(
         `${config.controlBackendUrl}/api/internal/gateway/events`,
         {
@@ -228,8 +229,9 @@ class SessionManager {
           timeout: 3_000,
         },
       );
-    } catch {
-      // Non-fatal — Control Backend may not be running yet during development
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[SessionManager] notifyControlBackend failed session=${session.id} status=${session.status}: ${msg}`);
     }
   }
 }

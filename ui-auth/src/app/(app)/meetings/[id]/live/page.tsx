@@ -130,9 +130,9 @@ export default function LiveMeetingPage({ params }: Props) {
   const status = session?.status ?? "created";
 
   return (
-    <div className="flex flex-col h-screen bg-[#0a0f1e]">
+    <div className="flex flex-col h-screen bg-[#080e1c]">
       {/* Top bar */}
-      <header className="flex items-center justify-between px-6 py-3 bg-[#0d1424] border-b border-slate-800 flex-shrink-0">
+      <header className="flex items-center justify-between px-6 py-3 bg-[#0c1528] border-b border-slate-800/60 flex-shrink-0">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             {status === "joined" && (
@@ -158,7 +158,7 @@ export default function LiveMeetingPage({ params }: Props) {
         <div className="flex items-center gap-3">
           {/* Agent speaking indicator */}
           {state?.agent_speaking && (
-            <div className="flex items-center gap-1.5 text-indigo-400 text-xs font-medium bg-indigo-900/30 border border-indigo-800/40 px-3 py-1.5 rounded-full">
+            <div className="flex items-center gap-1.5 text-[#6DD8F0] text-xs font-medium bg-[#6DD8F0]/10 border border-[#6DD8F0]/20 px-3 py-1.5 rounded-full">
               <Volume2 className="w-3 h-3" />
               Agent speaking
             </div>
@@ -206,7 +206,7 @@ export default function LiveMeetingPage({ params }: Props) {
                 className={clsx(
                   "flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors",
                   tab === key
-                    ? "border-indigo-500 text-indigo-400"
+                    ? "border-[#6DD8F0] text-[#6DD8F0]"
                     : "border-transparent text-slate-500 hover:text-slate-300"
                 )}
               >
@@ -214,7 +214,7 @@ export default function LiveMeetingPage({ params }: Props) {
                 {label}
                 {key === "actions" &&
                   (state?.action_items?.length ?? 0) > 0 && (
-                    <span className="ml-1 text-xs bg-indigo-800 text-indigo-300 px-1.5 py-0.5 rounded-full">
+                    <span className="ml-1 text-xs bg-[#3B82F6]/20 text-[#93C5FD] px-1.5 py-0.5 rounded-full">
                       {state!.action_items.length}
                     </span>
                   )}
@@ -239,7 +239,7 @@ export default function LiveMeetingPage({ params }: Props) {
         </div>
 
         {/* Right: agent status sidebar */}
-        <aside className="w-72 border-l border-slate-800 flex flex-col overflow-y-auto flex-shrink-0 bg-[#0d1424] p-5 space-y-5">
+        <aside className="w-72 border-l border-slate-800 flex flex-col overflow-y-auto flex-shrink-0 bg-[#0c1528] p-5 space-y-5">
           <AgentStatusPanel state={state} />
         </aside>
       </div>
@@ -280,7 +280,7 @@ function TranscriptPanel({
             </span>
           </div>
           <div>
-            <span className="text-xs font-semibold text-indigo-400 mr-2">
+            <span className="text-xs font-semibold text-[#6DD8F0] mr-2">
               {seg.speaker}
             </span>
             <span className="text-slate-200 text-sm leading-relaxed">{seg.text}</span>
@@ -294,14 +294,14 @@ function TranscriptPanel({
       {agentSpeaking && (
         <div className="slide-in flex gap-3">
           <div className="flex-shrink-0 w-16" />
-          <div className="flex items-center gap-2 text-indigo-300 text-sm">
+          <div className="flex items-center gap-2 text-[#6DD8F0] text-sm">
             <Bot className="w-4 h-4" />
             <span className="italic">Agent is speaking…</span>
             <span className="flex gap-1">
               {[0, 1, 2].map((i) => (
                 <span
                   key={i}
-                  className="w-1 h-1 bg-indigo-400 rounded-full animate-bounce"
+                  className="w-1 h-1 bg-[#6DD8F0] rounded-full animate-bounce"
                   style={{ animationDelay: `${i * 150}ms` }}
                 />
               ))}
@@ -335,7 +335,7 @@ function NotesPanel({ notes }: { notes: LiveSessionState["notes"] }) {
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
             Summary
           </h3>
-          <div className="text-slate-200 text-sm leading-relaxed bg-[#0d1424] border border-slate-800 rounded-xl p-4">
+          <div className="text-slate-200 text-sm leading-relaxed bg-[#0d1628] border border-slate-800/60 rounded-xl p-4">
             <MarkdownDocument markdown={notes.summary} />
           </div>
         </section>
@@ -394,7 +394,7 @@ function ActionItemsPanel({ items }: { items: ActionItem[] }) {
       {items.map((item) => (
         <div
           key={item.id}
-          className="bg-[#0d1424] border border-slate-800 rounded-xl p-4"
+          className="bg-[#0d1628] border border-slate-800/60 rounded-xl p-4"
         >
           <div className="flex items-start justify-between gap-3">
             <p className="text-slate-200 text-sm">{item.description}</p>
@@ -451,7 +451,7 @@ function AgentStatusPanel({ state }: { state: LiveSessionState | null }) {
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
             Current Topic
           </p>
-          <p className="text-sm text-slate-300 bg-[#131c30] border border-slate-800 rounded-lg p-3 leading-relaxed">
+          <p className="text-sm text-slate-300 bg-[#111828] border border-slate-800/60 rounded-lg p-3 leading-relaxed">
             {note.summary?.split(".")[0] ?? "—"}
           </p>
         </div>
@@ -462,8 +462,8 @@ function AgentStatusPanel({ state }: { state: LiveSessionState | null }) {
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
             Last Event
           </p>
-          <div className="bg-[#131c30] border border-slate-800 rounded-lg p-3">
-            <p className="text-xs text-indigo-400 font-mono">{lastEvent.event_type}</p>
+          <div className="bg-[#111828] border border-slate-800/60 rounded-lg p-3">
+            <p className="text-xs text-[#6DD8F0] font-mono">{lastEvent.event_type}</p>
             <p className="text-xs text-slate-500 mt-0.5">
               {new Date(lastEvent.created_at).toLocaleTimeString()}
             </p>

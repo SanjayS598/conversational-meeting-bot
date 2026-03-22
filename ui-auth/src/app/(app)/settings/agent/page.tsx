@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Bot, Save, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Settings, Save, AlertCircle, CheckCircle2 } from "lucide-react";
 import type { AgentMode, UserPreferences } from "@/lib/types";
 import clsx from "clsx";
 
@@ -27,7 +27,7 @@ const TONES = ["professional", "casual", "concise", "detailed", "friendly"];
 
 export default function AgentSettingsPage() {
   const [prefs, setPrefs] = useState<Partial<UserPreferences>>({
-    agent_display_name: "MeetBot",
+    agent_display_name: "",
     mode: "suggest_replies",
     tone: "professional",
     speak_threshold: 0.75,
@@ -42,7 +42,10 @@ export default function AgentSettingsPage() {
     fetch("/api/users/me/preferences")
       .then((r) => r.json())
       .then((data) => {
-        if (data && !data.error) setPrefs(data);
+        if (data && !data.error) {
+          if (data.agent_display_name === "MeetBot") data.agent_display_name = "";
+          setPrefs(data);
+        }
       })
       .finally(() => setLoading(false));
   }, []);
@@ -81,7 +84,7 @@ export default function AgentSettingsPage() {
     <div className="p-8 max-w-2xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Bot className="w-6 h-6 text-indigo-400" />
+          <Settings className="w-6 h-6 text-[#6DD8F0]" />
           Agent Settings
         </h1>
         <p className="text-slate-400 text-sm mt-1">
@@ -104,7 +107,7 @@ export default function AgentSettingsPage() {
         )}
 
         {/* Display name */}
-        <div className="bg-[#0d1424] border border-slate-800 rounded-2xl p-5">
+        <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">
           <label className="block text-sm font-medium text-slate-300 mb-3">
             Agent Display Name
           </label>
@@ -114,8 +117,8 @@ export default function AgentSettingsPage() {
             onChange={(e) =>
               setPrefs((p) => ({ ...p, agent_display_name: e.target.value }))
             }
-            className="w-full bg-[#131c30] border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-            placeholder="MeetBot"
+            className="w-full bg-[#111828] border border-slate-700/80 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#6DD8F0]/60 focus:border-transparent transition"
+            placeholder="e.g. Clairo"
           />
           <p className="text-xs text-slate-500 mt-1.5">
             How the agent appears in the meeting as a participant.
@@ -123,7 +126,7 @@ export default function AgentSettingsPage() {
         </div>
 
         {/* Mode */}
-        <div className="bg-[#0d1424] border border-slate-800 rounded-2xl p-5">
+        <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">
           <label className="block text-sm font-medium text-slate-300 mb-3">
             Conversation Mode
           </label>
@@ -136,7 +139,7 @@ export default function AgentSettingsPage() {
                 className={clsx(
                   "w-full text-left px-4 py-3 rounded-xl border transition-colors",
                   prefs.mode === value
-                    ? "border-indigo-600/60 bg-indigo-900/20"
+                    ? "border-[#3B82F6]/60 bg-[#3B82F6]/15"
                     : "border-slate-800 hover:border-slate-700 bg-transparent"
                 )}
               >
@@ -144,13 +147,13 @@ export default function AgentSettingsPage() {
                   <span
                     className={clsx(
                       "text-sm font-medium",
-                      prefs.mode === value ? "text-indigo-300" : "text-slate-300"
+                      prefs.mode === value ? "text-[#93C5FD]" : "text-slate-300"
                     )}
                   >
                     {label}
                   </span>
                   {prefs.mode === value && (
-                    <CheckCircle2 className="w-4 h-4 text-indigo-400" />
+                    <CheckCircle2 className="w-4 h-4 text-[#3B82F6]" />
                   )}
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">{description}</p>
@@ -160,7 +163,7 @@ export default function AgentSettingsPage() {
         </div>
 
         {/* Tone */}
-        <div className="bg-[#0d1424] border border-slate-800 rounded-2xl p-5">
+        <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">
           <label className="block text-sm font-medium text-slate-300 mb-3">
             Reply Tone
           </label>
@@ -173,7 +176,7 @@ export default function AgentSettingsPage() {
                 className={clsx(
                   "px-3 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors",
                   prefs.tone === t
-                    ? "bg-indigo-600 text-white"
+                    ? "bg-[#3B82F6] text-white"
                     : "bg-slate-800 text-slate-400 hover:bg-slate-700"
                 )}
               >
@@ -184,7 +187,7 @@ export default function AgentSettingsPage() {
         </div>
 
         {/* Speak threshold */}
-        <div className="bg-[#0d1424] border border-slate-800 rounded-2xl p-5">
+        <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">
           <label className="block text-sm font-medium text-slate-300 mb-1">
             Speak Confidence Threshold
           </label>
@@ -204,7 +207,7 @@ export default function AgentSettingsPage() {
                   speak_threshold: parseFloat(e.target.value),
                 }))
               }
-              className="flex-1 accent-indigo-500"
+              className="flex-1 accent-[#6DD8F0]"
             />
             <span className="text-sm font-mono text-slate-300 w-12 text-right">
               {((prefs.speak_threshold ?? 0.75) * 100).toFixed(0)}%
@@ -215,7 +218,7 @@ export default function AgentSettingsPage() {
         <button
           type="submit"
           disabled={saving}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:cursor-not-allowed text-white font-medium px-6 py-2.5 rounded-lg transition-colors"
+          className="flex items-center gap-2 bg-[#3B82F6] hover:bg-[#4F94F8] disabled:bg-[#1D4ED8] disabled:cursor-not-allowed text-white font-medium px-6 py-2.5 rounded-lg transition-colors"
         >
           {saving ? (
             <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">

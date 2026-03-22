@@ -9,6 +9,7 @@ import {
   Loader2,
   Plus,
   Calendar,
+  LayoutDashboard,
 } from "lucide-react";
 import type { MeetingSession } from "@/lib/types";
 import clsx from "clsx";
@@ -89,14 +90,17 @@ export default async function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+            <LayoutDashboard className="w-6 h-6 text-[#6DD8F0]" />
+            Dashboard
+          </h1>
           <p className="text-slate-400 text-sm mt-0.5">
-            Welcome back, {user.email}
+            Welcome back, {user.email?.split("@")[0]}!
           </p>
         </div>
         <Link
           href="/meetings/new"
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+          className="flex items-center gap-2 bg-[#3B82F6] hover:bg-[#4F94F8] text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
         >
           <Plus className="w-4 h-4" />
           New Meeting
@@ -155,7 +159,7 @@ export default async function DashboardPage() {
             </p>
             <Link
               href="/meetings/new"
-              className="mt-5 text-sm text-indigo-400 hover:text-indigo-300 font-medium"
+              className="mt-5 text-sm text-[#6DD8F0] hover:text-[#97E8F7] font-medium"
             >
               + Start a meeting
             </Link>
@@ -166,7 +170,7 @@ export default async function DashboardPage() {
               <Link
                 key={m.id}
                 href={`/meetings/${m.id}/summary`}
-                className="flex items-center justify-between bg-[#0d1424] border border-slate-800 rounded-xl px-5 py-4 hover:border-slate-700 transition-colors group"
+                className="flex items-center justify-between bg-[#0d1628] border border-slate-800/60 rounded-xl px-5 py-4 hover:border-slate-700 transition-colors group"
               >
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center">

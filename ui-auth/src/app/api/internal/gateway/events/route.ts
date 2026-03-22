@@ -31,10 +31,17 @@ export async function POST(req: Request) {
   if (body.joined_at) update.started_at = body.joined_at;
   if (body.ended_at) update.ended_at = body.ended_at;
 
-  await supabase
+  console.log(`[gateway/events] Updating session ${session_id} → status=${status}`);
+  const { error: updateErr } = await supabase
     .from("meeting_sessions")
     .update(update)
     .eq("id", session_id);
+
+  if (updateErr) {
+    console.error(`[gateway/events] Supabase update failed session=${session_id}:`, updateErr);
+  } else {
+    console.log(`[gateway/events] Supabase update OK session=${session_id} status=${status}`);
+  }
 
   // Record as an agent event for audit trail
   await supabase.from("agent_events").insert({

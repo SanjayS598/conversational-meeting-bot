@@ -77,7 +77,7 @@ export default async function MeetingSummaryPage({ params }: Props) {
       </Link>
 
       {/* Header */}
-      <div className="bg-[#0d1424] border border-slate-800 rounded-2xl p-6 mb-6">
+      <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-6 mb-6">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-xl font-bold text-white mb-1">Meeting Summary</h1>
@@ -120,9 +120,9 @@ export default async function MeetingSummaryPage({ params }: Props) {
         {/* Left col: summary + decisions + questions */}
         <div className="lg:col-span-2 space-y-5">
           {/* Summary */}
-          <section className="bg-[#0d1424] border border-slate-800 rounded-2xl p-5">
+          <section className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300 mb-3">
-              <FileText className="w-4 h-4 text-indigo-400" />
+              <FileText className="w-4 h-4 text-[#6DD8F0]" />
               Summary
             </h2>
             {note?.summary ? (
@@ -135,7 +135,7 @@ export default async function MeetingSummaryPage({ params }: Props) {
           </section>
 
           {/* Decisions */}
-          <section className="bg-[#0d1424] border border-slate-800 rounded-2xl p-5">
+          <section className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300 mb-3">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
               Decisions
@@ -155,7 +155,7 @@ export default async function MeetingSummaryPage({ params }: Props) {
           </section>
 
           {/* Open questions */}
-          <section className="bg-[#0d1424] border border-slate-800 rounded-2xl p-5">
+          <section className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300 mb-3">
               <HelpCircle className="w-4 h-4 text-yellow-400" />
               Open Questions
@@ -176,7 +176,7 @@ export default async function MeetingSummaryPage({ params }: Props) {
 
           {/* Transcript */}
           {segments.length > 0 && (
-            <section className="bg-[#0d1424] border border-slate-800 rounded-2xl p-5">
+            <section className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300 mb-3">
                 <FileText className="w-4 h-4 text-slate-400" />
                 Full Transcript
@@ -188,7 +188,7 @@ export default async function MeetingSummaryPage({ params }: Props) {
                       {formatMs(seg.start_ms)}
                     </span>
                     <div>
-                      <span className="text-xs font-semibold text-indigo-400 mr-2">
+                      <span className="text-xs font-semibold text-[#6DD8F0] mr-2">
                         {seg.speaker}
                       </span>
                       <span className="text-slate-300">{seg.text}</span>
@@ -202,12 +202,12 @@ export default async function MeetingSummaryPage({ params }: Props) {
 
         {/* Right col: action items */}
         <div className="space-y-5">
-          <section className="bg-[#0d1424] border border-slate-800 rounded-2xl p-5">
+          <section className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-300 mb-3">
-              <ListChecks className="w-4 h-4 text-indigo-400" />
+              <ListChecks className="w-4 h-4 text-[#6DD8F0]" />
               Action Items
               {items.length > 0 && (
-                <span className="ml-auto text-xs bg-indigo-900/40 text-indigo-400 px-2 py-0.5 rounded-full">
+                <span className="ml-auto text-xs bg-[#3B82F6]/20 text-[#93C5FD] px-2 py-0.5 rounded-full">
                   {items.length}
                 </span>
               )}

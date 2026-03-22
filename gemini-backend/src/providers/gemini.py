@@ -1,7 +1,7 @@
 """
 Hybrid provider implementation.
 
-Speech-to-text uses a local faster-whisper model on buffered WAV audio.
+Speech-to-text uses the OpenAI Whisper API (whisper-1) on buffered WAV audio.
 Meeting-state updates and meeting summary generation use the Google Gemini SDK.
 
 Audio format requirements:
@@ -18,7 +18,7 @@ import time
 import uuid
 from io import BytesIO
 
-from faster_whisper import WhisperModel
+import openai
 from google import genai
 from google.genai import types
 
@@ -139,16 +139,12 @@ class GeminiProvider(AIProvider):
     def __init__(
         self,
         api_key: str,
-        whisper_model: str = "base",
-        whisper_device: str = "auto",
-        whisper_compute_type: str = "int8",
+        openai_api_key: str = "",
+        whisper_model: str = "whisper-1",
     ) -> None:
         self._client = genai.Client(api_key=api_key)
-        self._whisper_model = WhisperModel(
-            whisper_model,
-            device=whisper_device,
-            compute_type=whisper_compute_type,
-        )
+        self._openai = openai.AsyncOpenAI(api_key=openai_api_key)
+        self._whisper_model = whisper_model
         # handle → { session_id, buffer: bytearray, start_ms: int, lock: asyncio.Lock }
         self._live_sessions: dict[str, dict] = {}
 
@@ -199,9 +195,9 @@ class GeminiProvider(AIProvider):
         duration_ms = _estimate_duration_ms(audio_data)
         end_ms = start_ms + duration_ms
         try:
-            # faster-whisper expects decodable audio bytes, so wrap the PCM stream in WAV.
+            # OpenAI Whisper API expects decodable audio bytes; wrap PCM in WAV.
             wav_data = _pcm_to_wav(audio_data)
-            text = await asyncio.to_thread(self._transcribe_wav, wav_data)
+            text = await self._transcribe_wav(wav_data)
             if not text:
                 return
 
@@ -219,13 +215,14 @@ class GeminiProvider(AIProvider):
         except Exception as exc:
             logger.warning("Transcription failed handle=%s: %s", handle, exc)
 
-    def _transcribe_wav(self, wav_data: bytes) -> str:
-        segments, _info = self._whisper_model.transcribe(
-            BytesIO(wav_data),
-            beam_size=1,
-            vad_filter=True,
+    async def _transcribe_wav(self, wav_data: bytes) -> str:
+        response = await self._openai.audio.transcriptions.create(
+            model=self._whisper_model,
+            file=("audio.wav", BytesIO(wav_data), "audio/wav"),
+            response_format="text",
         )
-        return " ".join(segment.text.strip() for segment in segments if segment.text).strip()
+        # response_format="text" returns a plain string
+        return response.strip() if isinstance(response, str) else str(response).strip()
 
     async def update_state_and_maybe_respond(
         self, payload: StateUpdatePayload

@@ -57,6 +57,8 @@ services:
   zoom-gateway:
     build:
       context: ./zoom-gateway
+    # Force x86-64 so Puppeteer's bundled Chromium works on Apple Silicon via Rosetta
+    platform: linux/amd64
     env_file:
       - path: ./zoom-gateway/.env
         required: false

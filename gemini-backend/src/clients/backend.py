@@ -14,7 +14,7 @@ from typing import Optional
 
 import httpx
 
-from ..schemas.session import AgentResponse, MeetingState, TranscriptSegment
+from ..schemas.session import AgentResponse, MeetingState, MeetingSummary, TranscriptSegment
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,33 @@ class BackendClient:
                     "requires_approval": response.requires_approval,
                     "confidence": response.confidence,
                 },
+            },
+        )
+
+    async def push_summary(self, summary: MeetingSummary) -> None:
+        """Push a generated meeting summary to the Control Backend."""
+        summary_parts = [part for part in [summary.title, summary.executive_summary] if part]
+        if summary.key_decisions:
+            summary_parts.append("Key decisions:\n" + "\n".join(f"- {item}" for item in summary.key_decisions))
+        if summary.next_steps:
+            summary_parts.append("Next steps:\n" + "\n".join(f"- {item}" for item in summary.next_steps))
+
+        await self._emit(
+            event_type="notes.update",
+            payload={
+                "session_id": summary.session_id,
+                "summary": "\n\n".join(summary_parts),
+                "decisions_json": summary.key_decisions,
+                "questions_json": summary.open_questions,
+            },
+        )
+
+        await self._emit(
+            event_type="agent.event",
+            payload={
+                "session_id": summary.session_id,
+                "event_type": "summary.generated",
+                "payload_json": summary.model_dump(mode="json"),
             },
         )
 

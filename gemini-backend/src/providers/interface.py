@@ -40,6 +40,24 @@ class StateUpdateResult:
     response_candidate: Optional[str]  # JSON-stringified AgentResponse or None
 
 
+@dataclass
+class SummaryPayload:
+    session_id: str
+    full_transcript: str            # all segments joined as "[Speaker] text\n"
+    meeting_objective: str          # from SessionConfig
+    current_state: str              # JSON-stringified MeetingState (incremental notes)
+
+
+@dataclass
+class SummaryResult:
+    title: str
+    executive_summary: str
+    key_decisions: list
+    action_items: list              # list of dicts with description/owner/due_hint
+    open_questions: list
+    next_steps: list
+
+
 # Callback type for streaming transcript deltas
 DeltaCallback = Callable[[TranscriptDelta], Awaitable[None]]
 
@@ -68,6 +86,11 @@ class AIProvider(ABC):
         self, payload: StateUpdatePayload
     ) -> StateUpdateResult:
         """Stateless structured call to update MeetingState and optionally generate a response."""
+        ...
+
+    @abstractmethod
+    async def generate_meeting_summary(self, payload: SummaryPayload) -> SummaryResult:
+        """Generate a comprehensive end-of-meeting summary from the full transcript."""
         ...
 
     @abstractmethod

@@ -1,27 +1,24 @@
 """
-Gemini provider implementation using the google-genai SDK.
+Hybrid provider implementation.
 
-Audio transcription uses a buffered approach: audio chunks are accumulated for
-BUFFER_SECONDS seconds, then sent to gemini-2.5-flash as inline PCM audio for
-transcription. This works on AI Studio free tier (unlike the Live WebSocket API
-which requires Vertex AI / paid access).
-
-State updates use a stateless generateContent call with JSON output mode.
+Speech-to-text uses a local faster-whisper model on buffered WAV audio.
+Meeting-state updates and meeting summary generation use the Google Gemini SDK.
 
 Audio format requirements:
-  - 16-bit PCM, 16 kHz, mono (LINEAR16)
-  - Chunks should be ~100ms of audio (3200 bytes at 16kHz 16-bit mono)
+    - 16-bit PCM, 16 kHz, mono (LINEAR16)
+    - Chunks should be ~100ms of audio (3200 bytes at 16kHz 16-bit mono)
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import time
 import uuid
+from io import BytesIO
 
+from faster_whisper import WhisperModel
 from google import genai
 from google.genai import types
 
@@ -31,6 +28,8 @@ from .interface import (
     DeltaCallback,
     StateUpdatePayload,
     StateUpdateResult,
+    SummaryPayload,
+    SummaryResult,
     TranscriptDelta,
 )
 
@@ -42,12 +41,6 @@ BUFFER_SECONDS = 2.0
 # 16kHz, 16-bit mono = 32000 bytes/sec
 BYTES_PER_SECOND = 32000
 BUFFER_BYTES = int(BUFFER_SECONDS * BYTES_PER_SECOND)
-
-TRANSCRIPTION_PROMPT = (
-    "Transcribe the speech in this audio clip exactly as spoken. "
-    "Return only the spoken words — no labels, no explanations, no markdown. "
-    "If there is no audible speech, return an empty string."
-)
 
 STATE_UPDATE_SYSTEM_PROMPT = """\
 You are the intelligence layer for a personal meeting agent.
@@ -98,20 +91,64 @@ def _build_state_update_prompt(payload: StateUpdatePayload) -> str:
     )
 
 
+MEETING_SUMMARY_PROMPT = """\
+You are an expert meeting analyst. Your task is to generate a comprehensive, structured meeting summary.
+
+You will receive:
+- The meeting objective
+- The full meeting transcript
+- Incrementally-captured notes (decisions, action items, open questions tracked so far)
+
+Generate a complete meeting summary. Return ONLY valid JSON with no markdown fences:
+{
+  "title": "<short descriptive title for the meeting (max 10 words)>",
+  "executive_summary": "<concise 2-4 sentence summary of what was discussed and accomplished>",
+  "key_decisions": ["<decision 1>", "<decision 2>", ...],
+  "action_items": [
+    {"description": "<task>", "owner": "<person or null>", "due_hint": "<timeframe or null>"}
+  ],
+  "open_questions": ["<question 1>", "<question 2>", ...],
+  "next_steps": ["<next step 1>", "<next step 2>", ...]
+}
+
+Rules:
+- Base everything strictly on the transcript — do not invent facts
+- key_decisions should only contain things that were explicitly agreed upon
+- action_items should include owner when a person was clearly assigned
+- next_steps are the concrete things that should happen after this meeting
+- If the transcript is too short or silent, still return the JSON structure with empty arrays
+"""
+
+
+def _build_summary_prompt(payload: SummaryPayload) -> str:
+    return (
+        MEETING_SUMMARY_PROMPT
+        + "\n\n## Meeting Objective\n"
+        + payload.meeting_objective
+        + "\n\n## Incremental Notes (captured so far)\n"
+        + payload.current_state
+        + "\n\n## Full Transcript\n"
+        + (payload.full_transcript or "(no transcript captured)")
+        + "\n\nRespond with valid JSON only."
+    )
+
+
 class GeminiProvider(AIProvider):
-    """
-    Google Gemini AI provider (google-genai SDK).
-
-    Uses gemini-2.5-flash for both state updates and audio transcription.
-    Audio is buffered in memory and sent as inline PCM to generate_content,
-    which is compatible with the AI Studio free tier.
-    """
-
-    TRANSCRIPTION_MODEL = "gemini-2.5-flash"
     STATE_MODEL = "gemini-2.5-flash"
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        whisper_model: str = "base",
+        whisper_device: str = "auto",
+        whisper_compute_type: str = "int8",
+    ) -> None:
         self._client = genai.Client(api_key=api_key)
+        self._whisper_model = WhisperModel(
+            whisper_model,
+            device=whisper_device,
+            compute_type=whisper_compute_type,
+        )
         # handle → { session_id, buffer: bytearray, start_ms: int, lock: asyncio.Lock }
         self._live_sessions: dict[str, dict] = {}
 
@@ -162,26 +199,9 @@ class GeminiProvider(AIProvider):
         duration_ms = _estimate_duration_ms(audio_data)
         end_ms = start_ms + duration_ms
         try:
-            # Gemini requires WAV format — raw PCM will cause hallucination
+            # faster-whisper expects decodable audio bytes, so wrap the PCM stream in WAV.
             wav_data = _pcm_to_wav(audio_data)
-            audio_b64 = base64.b64encode(wav_data).decode()
-            response = await self._client.aio.models.generate_content(
-                model=self.TRANSCRIPTION_MODEL,
-                contents=[
-                    types.Part(text=TRANSCRIPTION_PROMPT),
-                    types.Part(
-                        inline_data=types.Blob(
-                            mime_type="audio/wav",
-                            data=audio_b64,
-                        )
-                    ),
-                ],
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    max_output_tokens=512,
-                ),
-            )
-            text = (response.text or "").strip()
+            text = await asyncio.to_thread(self._transcribe_wav, wav_data)
             if not text:
                 return
 
@@ -198,6 +218,14 @@ class GeminiProvider(AIProvider):
 
         except Exception as exc:
             logger.warning("Transcription failed handle=%s: %s", handle, exc)
+
+    def _transcribe_wav(self, wav_data: bytes) -> str:
+        segments, _info = self._whisper_model.transcribe(
+            BytesIO(wav_data),
+            beam_size=1,
+            vad_filter=True,
+        )
+        return " ".join(segment.text.strip() for segment in segments if segment.text).strip()
 
     async def update_state_and_maybe_respond(
         self, payload: StateUpdatePayload
@@ -240,6 +268,56 @@ class GeminiProvider(AIProvider):
             return
         # Discard any remaining buffered audio (session is ending)
         logger.info("Ended buffered transcription session handle=%s", handle)
+
+    async def generate_meeting_summary(self, payload: SummaryPayload) -> SummaryResult:
+        """
+        Generate a comprehensive end-of-meeting summary using Gemini.
+
+        Called once when a session ends (or triggered manually).
+        Uses the full transcript and accumulated MeetingState to produce
+        a structured summary: title, executive summary, decisions, action items,
+        open questions, and next steps.
+        """
+        prompt = _build_summary_prompt(payload)
+
+        response = await self._client.aio.models.generate_content(
+            model=self.STATE_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.3,
+                max_output_tokens=4096,
+            ),
+        )
+
+        raw = (response.text or "").strip()
+        # Strip accidental markdown fences
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1].lstrip("json").strip() if len(parts) > 1 else raw
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to parse summary JSON: %s\nRaw: %s", exc, raw[:500])
+            # Return a graceful fallback rather than crashing
+            data = {
+                "title": "Meeting Summary",
+                "executive_summary": "Summary generation encountered a parsing error.",
+                "key_decisions": [],
+                "action_items": [],
+                "open_questions": [],
+                "next_steps": [],
+            }
+
+        return SummaryResult(
+            title=data.get("title", "Meeting Summary"),
+            executive_summary=data.get("executive_summary", ""),
+            key_decisions=data.get("key_decisions", []),
+            action_items=data.get("action_items", []),
+            open_questions=data.get("open_questions", []),
+            next_steps=data.get("next_steps", []),
+        )
 
 
 def _estimate_duration_ms(pcm_data: bytes) -> int:

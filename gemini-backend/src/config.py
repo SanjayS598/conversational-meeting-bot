@@ -2,7 +2,6 @@
 Application configuration via pydantic-settings.
 
 Reads from environment variables and the .env file.
-All secrets are required — the service refuses to start without them.
 """
 
 from __future__ import annotations
@@ -21,6 +20,11 @@ class Settings(BaseSettings):
 
     # ── Google Gemini ──────────────────────────────────────────────────────────
     gemini_api_key: str = Field(..., description="Google AI Studio API key")
+
+    # ── Local Whisper STT ────────────────────────────────────────────────────
+    whisper_model: str = Field(default="base", description="Local faster-whisper model size")
+    whisper_device: str = Field(default="auto", description="Whisper device: auto, cpu, or cuda")
+    whisper_compute_type: str = Field(default="int8", description="Whisper compute type")
 
     # ── Internal Auth ─────────────────────────────────────────────────────────
     internal_service_token: str = Field(

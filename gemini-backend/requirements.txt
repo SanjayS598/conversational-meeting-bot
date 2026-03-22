@@ -22,6 +22,9 @@ redis[hiredis]>=5.2
 # HTTP client (backend calls)
 httpx>=0.28
 
+# Local speech-to-text
+faster-whisper>=1.1
+
 # Async utilities
 anyio>=4.8
 

@@ -21,6 +21,7 @@ import redis.asyncio as aioredis
 from ..schemas.session import (
     AgentResponse,
     MeetingState,
+    MeetingSummary,
     SessionConfig,
     SessionState,
     SessionStatus,
@@ -129,6 +130,18 @@ class SessionManager:
     ) -> None:
         """Replace the full MeetingState for a session."""
         await self.update(session_id, meeting=meeting)
+
+    async def save_summary(self, session_id: str, summary: MeetingSummary) -> None:
+        """Persist the end-of-meeting summary to Redis."""
+        await self.update(session_id, summary=summary)
+        logger.info("Saved summary session_id=%s", session_id)
+
+    async def get_summary(self, session_id: str) -> Optional[MeetingSummary]:
+        """Return the summary for a session, or None if not yet generated."""
+        state = await self.get(session_id)
+        if state is None:
+            return None
+        return state.summary
 
     # ── Private ───────────────────────────────────────────────────────────────
 

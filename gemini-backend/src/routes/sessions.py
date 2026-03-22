@@ -8,6 +8,8 @@ Endpoints:
   GET    /brain/sessions/{id}/context  — current session config + meeting state
   GET    /brain/sessions/{id}/notes    — meeting state, transcript count, pending response
   POST   /brain/sessions/{id}/respond  — approve/reject pending response (triggers TTS)
+  POST   /brain/sessions/{id}/summary  — generate (or return cached) meeting summary
+  GET    /brain/sessions/{id}/summary  — return previously generated meeting summary
 """
 
 from __future__ import annotations
@@ -18,13 +20,13 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import JSONResponse
 
 from ..clients.backend import BackendClient, BackendClientError
 from ..clients.voice import VoiceClient, VoiceClientError
 from ..pipeline.audio_processor import AudioProcessor
-from ..providers.interface import AudioChunk
+from ..providers.interface import AIProvider, AudioChunk, SummaryPayload
 from ..schemas.session import (
+    MeetingSummary,
     RespondRequest,
     RespondResponse,
     SessionConfig,
@@ -33,6 +35,7 @@ from ..schemas.session import (
     SessionStatus,
     StartSessionRequest,
     StartSessionResponse,
+    SummaryResponse,
 )
 from ..sessions.manager import SessionManager, SessionNotFoundError
 
@@ -58,6 +61,63 @@ def get_backend_client(request: Request) -> BackendClient:
 
 def get_voice_client(request: Request) -> VoiceClient:
     return request.app.state.voice_client
+
+
+def get_provider(request: Request) -> AIProvider:
+    return request.app.state.provider
+
+
+def _join_transcript_lines(transcript: list[object]) -> str:
+    lines: list[str] = []
+    for segment in transcript:
+        text = getattr(segment, "text", "")
+        if not text:
+            continue
+        speaker_label = getattr(segment, "speaker_label", "Participant")
+        lines.append(f"[{speaker_label}] {text}")
+    return "\n".join(lines)
+
+
+def _clean_string_list(values: list[object]) -> list[str]:
+    cleaned: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def _clean_action_items(values: list[object]) -> list[dict[str, str | None]]:
+    cleaned: list[dict[str, str | None]] = []
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        description = str(value.get("description", "")).strip()
+        if not description:
+            continue
+        owner = value.get("owner")
+        due_hint = value.get("due_hint")
+        cleaned.append(
+            {
+                "description": description,
+                "owner": str(owner).strip() if owner else None,
+                "due_hint": str(due_hint).strip() if due_hint else None,
+            }
+        )
+    return cleaned
+
+
+def _build_summary_model(session_id: str, result, generated_at: int) -> MeetingSummary:
+    return MeetingSummary(
+        session_id=session_id,
+        title=result.title.strip() or "Meeting Summary",
+        executive_summary=result.executive_summary.strip(),
+        key_decisions=_clean_string_list(result.key_decisions),
+        action_items=_clean_action_items(result.action_items),
+        open_questions=_clean_string_list(result.open_questions),
+        next_steps=_clean_string_list(result.next_steps),
+        generated_at=generated_at,
+    )
 
 
 # ─── POST /brain/sessions/{session_id}/start ─────────────────────────────────
@@ -320,4 +380,86 @@ async def respond(
         spoken=spoken,
         text=pending.text if spoken else None,
         reason=pending.reason if spoken else "rejected",
+    )
+
+
+# ─── GET /brain/sessions/{session_id}/summary ───────────────────────────────
+
+
+@router.get("/{session_id}/summary", response_model=SummaryResponse)
+async def get_summary(
+    session_id: str,
+    session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+) -> SummaryResponse:
+    """Return the previously generated meeting summary."""
+    try:
+        session = await session_manager.get_or_raise(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.summary is None:
+        raise HTTPException(status_code=404, detail="Summary not found")
+
+    return SummaryResponse(
+        session_id=session_id,
+        summary=session.summary,
+        transcript_count=len(session.transcript),
+    )
+
+
+# ─── POST /brain/sessions/{session_id}/summary ──────────────────────────────
+
+
+@router.post("/{session_id}/summary", response_model=SummaryResponse)
+async def generate_summary(
+    session_id: str,
+    session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+    provider: Annotated[AIProvider, Depends(get_provider)],
+    backend_client: Annotated[BackendClient, Depends(get_backend_client)],
+) -> SummaryResponse:
+    """Generate and cache a structured meeting summary from the current transcript."""
+    try:
+        session = await session_manager.get_or_raise(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.summary is not None:
+        return SummaryResponse(
+            session_id=session_id,
+            summary=session.summary,
+            transcript_count=len(session.transcript),
+        )
+
+    payload = SummaryPayload(
+        session_id=session_id,
+        full_transcript=_join_transcript_lines(session.transcript),
+        meeting_objective=session.config.meeting_objective,
+        current_state=session.meeting.model_dump_json(),
+    )
+
+    try:
+        result = await provider.generate_meeting_summary(payload)
+    except Exception as exc:
+        logger.error("Summary generation failed session_id=%s: %s", session_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Summary generation failed",
+        ) from exc
+
+    summary = _build_summary_model(
+        session_id=session_id,
+        result=result,
+        generated_at=int(time.time() * 1000),
+    )
+    await session_manager.save_summary(session_id, summary)
+
+    try:
+        await backend_client.push_summary(summary)
+    except BackendClientError as exc:
+        logger.warning("Failed to push summary to backend session_id=%s: %s", session_id, exc)
+
+    return SummaryResponse(
+        session_id=session_id,
+        summary=summary,
+        transcript_count=len(session.transcript),
     )

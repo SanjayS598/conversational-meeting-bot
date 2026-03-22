@@ -90,7 +90,7 @@ class SessionManager {
     this.emit('session.created', session.id);
 
     // Join async — caller gets a 202 immediately; status events track progress
-    this.doJoin(session, joiner, input.passcode, input.meeting_objective, input.prep_notes).catch((err: unknown) => {
+    this.doJoin(session, joiner, input.passcode, input.meeting_objective, input.prep_notes, input.prep_id).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[SessionManager] Join failed for ${session.id}: ${msg}`);
       this.updateStatus(session.id, 'failed', msg);
@@ -161,6 +161,7 @@ class SessionManager {
     passcode?: string,
     meetingObjective?: string,
     prepNotes?: string,
+    prepId?: string,
   ): Promise<void> {
     await joiner.join(session.meeting_url, session.bot_display_name, passcode);
     const active = this.sessions.get(session.id);
@@ -170,6 +171,8 @@ class SessionManager {
     geminiBrainClient.startSession(session.id, {
       meetingObjective: meetingObjective ?? `Attend and take notes for meeting at ${session.meeting_url}`,
       prepNotes,
+      prepId,
+      botDisplayName: session.bot_display_name,
     }).catch((err: unknown) => {
       console.warn(`[SessionManager] Gemini brain start failed for ${session.id}:`, err);
     });

@@ -35,6 +35,8 @@ export class GeminiBrainClient {
       meetingObjective?: string;
       prepNotes?: string;
       voiceProfileId?: string;
+      prepId?: string;
+      botDisplayName?: string;
     } = {},
   ): Promise<void> {
     const brainUrl = config.geminiServiceUrl;
@@ -48,6 +50,8 @@ export class GeminiBrainClient {
           prep_notes: opts.prepNotes ?? '',
           mode: 'notes_only',
           voice_profile_id: opts.voiceProfileId ?? null,
+          prep_id: opts.prepId ?? null,
+          bot_display_name: opts.botDisplayName ?? null,
         },
         {
           headers: { Authorization: `Bearer ${config.internalServiceSecret}` },

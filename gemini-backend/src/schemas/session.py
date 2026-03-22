@@ -97,6 +97,9 @@ class SessionConfig(BaseModel):
     allowed_topics: list[str] = Field(default_factory=list)
     response_policy: ResponsePolicyConfig = Field(default_factory=ResponsePolicyConfig)
     voice_profile_id: Optional[str] = None  # ElevenLabs voice profile for TTS
+    # Conversational agent fields
+    prep_id: Optional[str] = None           # Links to preloader context/greeting
+    bot_display_name: Optional[str] = None  # Agent's display name in the meeting
 
 
 class SessionState(BaseModel):
@@ -121,6 +124,9 @@ class StartSessionRequest(BaseModel):
     allowed_topics: list[str] = Field(default_factory=list)
     response_policy: ResponsePolicyConfig = Field(default_factory=ResponsePolicyConfig)
     voice_profile_id: Optional[str] = None  # ElevenLabs voice profile for TTS
+    # Conversational agent fields
+    prep_id: Optional[str] = None           # Pre-built context from /voice/prepare
+    bot_display_name: Optional[str] = None  # Agent's name to use in the meeting
 
 
 class StartSessionResponse(BaseModel):

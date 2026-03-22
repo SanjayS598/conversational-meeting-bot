@@ -28,15 +28,19 @@ export async function POST(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  // Parse optional body params (passcode, objective, prep notes)
+  // Parse optional body params (passcode, objective, prep notes, voice agent)
   let passcode: string | undefined;
   let meeting_objective: string | undefined;
   let prep_notes: string | undefined;
+  let prep_id: string | undefined;
+  let bot_display_name: string | undefined;
   try {
     const body = await _req.json().catch(() => ({}));
     passcode = body.passcode || undefined;
     meeting_objective = body.meeting_objective || undefined;
     prep_notes = body.prep_notes || undefined;
+    prep_id = body.prep_id || undefined;
+    bot_display_name = body.bot_display_name || undefined;
   } catch {
     // Body is optional — ignore parse errors
   }
@@ -62,10 +66,11 @@ export async function POST(_req: Request, { params }: Params) {
       meeting_session_id: id,
       user_id: user.id,
       meeting_url: session.meeting_url,
-      bot_display_name: prefs?.agent_display_name ?? undefined,
+      bot_display_name: bot_display_name ?? prefs?.agent_display_name ?? undefined,
       passcode,
       meeting_objective,
       prep_notes,
+      prep_id,
     }),
   });
 

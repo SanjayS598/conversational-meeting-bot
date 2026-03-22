@@ -31,6 +31,10 @@ anyio>=4.8
 # Test / dev utilities (smoke test client)
 websockets>=14.1
 
+# Document extraction (voice prep)
+pymupdf>=1.24          # PDF extraction (fitz)
+python-pptx>=1.0       # PPTX extraction
+
 # Logging
 structlog>=24.4
 

@@ -32,6 +32,7 @@ from .pipeline.state_updater import StateUpdater
 from .providers.deepgram_provider import DeepgramProvider
 from .providers.gemini import GeminiProvider
 from .routes.sessions import router as sessions_router
+from .routes.voice import router as voice_router
 from .sessions.manager import SessionManager
 
 
@@ -158,6 +159,7 @@ def create_app() -> FastAPI:
     # ── Routes ────────────────────────────────────────────────────────────────
 
     app.include_router(sessions_router)
+    app.include_router(voice_router)
 
     @app.get("/health")
     async def health() -> dict:

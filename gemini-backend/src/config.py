@@ -49,6 +49,22 @@ class Settings(BaseSettings):
         description="Voice Runtime (voice-cloning) base URL",
     )
 
+    # ── Zoom Gateway (for audio injection) ────────────────────────────────────
+    zoom_gateway_url: str = Field(
+        default="http://localhost:3001",
+        description="Zoom Gateway base URL (used to inject synthesised speech)",
+    )
+
+    # ── ElevenLabs TTS ────────────────────────────────────────────────────────
+    elevenlabs_api_key: str = Field(
+        default="",
+        description="ElevenLabs API key for voice synthesis",
+    )
+    elevenlabs_voice_id: str = Field(
+        default="",
+        description="ElevenLabs voice ID to use for the agent",
+    )
+
     # ── Redis ─────────────────────────────────────────────────────────────────
     redis_url: str = Field(
         default="redis://localhost:6379",

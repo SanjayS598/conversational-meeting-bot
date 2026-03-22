@@ -6,10 +6,12 @@ Called after every finalized TranscriptSegment. It:
 2. Runs the LangGraph graph (update_state → policy_gate)
 3. Persists updated MeetingState and optional AgentResponse to Redis
 4. Pushes TranscriptSegment and MeetingState to the Control Backend
+5. If the session has conversational AI active, debounces and generates a reply.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -25,6 +27,14 @@ logger = logging.getLogger(__name__)
 
 # How many recent segments to include in the rolling transcript context
 ROLLING_WINDOW = 20
+
+# Debounce delay before triggering a conversational response (seconds)
+CONV_DEBOUNCE_S = 1.8
+
+# Per-session debounce task handle
+_debounce_tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
+# Per-session last transcript seen (for debounce stale-check)
+_last_transcript: dict[str, str] = {}
 
 
 class StateUpdater:
@@ -53,6 +63,7 @@ class StateUpdater:
           2. Immediately persist transcript segment to DB (fast path — unblocks UI)
           3. Run LangGraph / Gemini graph for notes update (slow path — background)
           4. Persist updated meeting state and push to Control Backend
+          5. If conversational AI is active, debounce + respond
         """
         try:
             session = await self._session_manager.get_or_raise(session_id)
@@ -148,6 +159,60 @@ class StateUpdater:
                     session_id,
                     exc,
                 )
+
+        # ── Conversational AI: debounced response ─────────────────────────────
+        # Only triggers if the session has the conversational module active
+        # (i.e. prep_id + bot_display_name were supplied at session start).
+        self._maybe_trigger_conv_response(session_id, new_segment)
+
+    def _maybe_trigger_conv_response(
+        self, session_id: str, segment: TranscriptSegment
+    ) -> None:
+        """Debounce and schedule a conversational reply if the session is in conv mode."""
+        from ..voice import conversation as conv
+
+        if not conv.is_attached(session_id):
+            return
+
+        text = segment.text.strip()
+        if not text:
+            return
+
+        # Cancel any pending debounce task for this session
+        existing = _debounce_tasks.get(session_id)
+        if existing and not existing.done():
+            existing.cancel()
+
+        _last_transcript[session_id] = text
+
+        async def _respond_after_debounce() -> None:
+            await asyncio.sleep(CONV_DEBOUNCE_S)
+
+            # Stale-check: if new speech arrived while we were waiting, abort
+            if _last_transcript.get(session_id) != text:
+                logger.debug(
+                    "Conv debounce stale session_id=%s — skipping", session_id
+                )
+                return
+
+            from ..voice import injector
+
+            reply = await asyncio.get_event_loop().run_in_executor(
+                None,
+                conv.get_response,
+                session_id,
+                text,
+                segment.speaker_label,
+            )
+
+            if reply:
+                logger.info(
+                    "Conversational reply session_id=%s: %s", session_id, reply[:80]
+                )
+                await injector.inject_text(session_id, reply)
+
+        task = asyncio.create_task(_respond_after_debounce())
+        _debounce_tasks[session_id] = task
 
     async def _persist_segment_only(
         self, session_id: str, segment: TranscriptSegment

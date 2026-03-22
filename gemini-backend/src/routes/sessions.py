@@ -207,6 +207,8 @@ async def start_session(
     """
     Create a new meeting session.
     Starts the Gemini Live audio transcription session.
+    If prep_id and bot_display_name are provided the conversational AI is also
+    activated: context is loaded, and a greeting is injected after a short delay.
     """
     # Allow caller to override session_id
     final_id = session_id if session_id != "new" else str(uuid.uuid4())
@@ -220,6 +222,8 @@ async def start_session(
         allowed_topics=body.allowed_topics,
         response_policy=body.response_policy,
         voice_profile_id=body.voice_profile_id,
+        prep_id=body.prep_id,
+        bot_display_name=body.bot_display_name,
     )
 
     existing = await session_manager.get(final_id)
@@ -239,7 +243,48 @@ async def start_session(
             detail=f"Failed to start live audio session: {exc}",
         ) from exc
 
+    # ── Conversational AI activation ─────────────────────────────────────────
+    # If prep_id + bot_display_name are provided, attach the Gemini conversational
+    # session and schedule a greeting injection after the bot has fully joined.
+    if body.prep_id and body.bot_display_name:
+        _activate_conversational_ai(final_id, body.bot_display_name, body.prep_id)
+
     return StartSessionResponse(session_id=final_id, status=SessionStatus.active)
+
+
+def _activate_conversational_ai(
+    session_id: str, display_name: str, prep_id: str
+) -> None:
+    """Attach conversational AI and schedule greeting injection (fire-and-forget)."""
+    import asyncio
+
+    from ..voice import conversation as conv
+    from ..voice import preloader
+    from ..voice import injector
+
+    context = preloader.get_context(prep_id) or ""
+    conv.attach_session(session_id, display_name, context)
+    logger.info(
+        "Conversational AI activated session_id=%s display_name=%s", session_id, display_name
+    )
+
+    # Schedule greeting injection — delay gives the bot time to fully appear in Zoom
+    async def _inject_greeting() -> None:
+        await asyncio.sleep(8)  # wait for Puppeteer bot to settle in the meeting
+        greeting_audio = preloader.get_greeting_audio(prep_id)
+        if greeting_audio:
+            logger.info("Injecting pre-rendered greeting session_id=%s", session_id)
+            await injector.inject_audio(session_id, greeting_audio)
+        else:
+            greeting_text = preloader.get_greeting_text(prep_id)
+            if greeting_text:
+                logger.info(
+                    "Injecting live-rendered greeting session_id=%s", session_id
+                )
+                await injector.inject_text(session_id, greeting_text)
+        preloader.clear(prep_id)
+
+    asyncio.create_task(_inject_greeting())
 
 
 # ─── WebSocket /brain/sessions/{session_id}/audio ────────────────────────────
@@ -314,6 +359,9 @@ async def audio_stream(
     finally:
         await audio_processor.stop(session_id)
         await session_manager.end(session_id)
+        # Clean up conversational AI state if active
+        from ..voice import conversation as conv
+        conv.detach_session(session_id)
         try:
             await _ensure_summary(
                 session_id=session_id,

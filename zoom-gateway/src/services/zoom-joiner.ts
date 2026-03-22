@@ -196,15 +196,21 @@ const PRELOAD_SCRIPT = /* js */ `
 
         window.__injectAudio = function (i16arr) {
           try {
-            injectCtx.resume();
             const f32 = new Float32Array(i16arr.length);
             for (let k = 0; k < i16arr.length; k++) f32[k] = i16arr[k] / 32768;
             const buf = injectCtx.createBuffer(1, f32.length, 16000);
             buf.copyToChannel(f32, 0);
-            const src = injectCtx.createBufferSource();
-            src.buffer = buf;
-            src.connect(injectDest);
-            src.start();
+            // Must await resume() before starting the source — if the AudioContext
+            // is 'suspended', src.start() will silently discard audio.
+            injectCtx.resume().then(function () {
+              var src = injectCtx.createBufferSource();
+              src.buffer = buf;
+              src.connect(injectDest);
+              src.start();
+              console.log('[ZG] __injectAudio played samples=' + i16arr.length + ' ctxState=' + injectCtx.state);
+            }).catch(function (err) {
+              console.error('[ZG] audio inject resume error', err);
+            });
           } catch (err) {
             console.error('[ZG] audio inject error', err);
           }

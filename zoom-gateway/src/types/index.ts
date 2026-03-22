@@ -28,6 +28,8 @@ export interface StartSessionInput {
   meeting_objective?: string;
   /** Longer background notes or context for the AI brain. */
   prep_notes?: string;
+  /** prep_id from /voice/prepare — activates conversational AI in the brain. */
+  prep_id?: string;
 }
 
 export interface Session {

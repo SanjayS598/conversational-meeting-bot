@@ -83,8 +83,10 @@ class StateUpdater:
             )
 
         # ── Slow path: Gemini notes update ────────────────────────────────────
-        # Build rolling transcript text (last ROLLING_WINDOW segments)
-        recent = session.transcript[-ROLLING_WINDOW:]
+        # Build rolling transcript text including the segment that just arrived.
+        recent = session.transcript[-(ROLLING_WINDOW - 1):] if ROLLING_WINDOW > 1 else []
+        if not recent or recent[-1].segment_id != new_segment.segment_id:
+            recent = [*recent, new_segment]
         recent_text = "\n".join(
             f"[{seg.speaker_label}] {seg.text}" for seg in recent
         )

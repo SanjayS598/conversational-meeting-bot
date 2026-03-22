@@ -60,19 +60,29 @@ export async function POST(_req: Request, { params }: Params) {
 
   // Tell the Meeting Gateway to join
   const gwUrl = process.env.MEETING_GATEWAY_URL ?? "http://localhost:3001";
-  const gatewayResponse = await callService(gwUrl, "/sessions/start", {
-    method: "POST",
-    body: JSON.stringify({
-      meeting_session_id: id,
-      user_id: user.id,
-      meeting_url: session.meeting_url,
-      bot_display_name: bot_display_name ?? prefs?.agent_display_name ?? undefined,
-      passcode,
-      meeting_objective,
-      prep_notes,
-      prep_id,
-    }),
-  });
+  let gatewayResponse: Response;
+  try {
+    gatewayResponse = await callService(gwUrl, "/sessions/start", {
+      method: "POST",
+      body: JSON.stringify({
+        meeting_session_id: id,
+        user_id: user.id,
+        meeting_url: session.meeting_url,
+        bot_display_name: bot_display_name ?? prefs?.agent_display_name ?? undefined,
+        passcode,
+        meeting_objective,
+        prep_notes,
+        prep_id,
+      }),
+    });
+  } catch (err: unknown) {
+    await supabase
+      .from("meeting_sessions")
+      .update({ status: "failed" })
+      .eq("id", id);
+    const msg = err instanceof Error ? err.message : "Meeting gateway unreachable";
+    return NextResponse.json({ error: msg }, { status: 502 });
+  }
 
   if (!gatewayResponse.ok) {
     await supabase

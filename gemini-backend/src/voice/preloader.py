@@ -5,7 +5,7 @@ When POST /voice/prepare is called, this module:
   1. Receives extracted text from documents
   2. Builds a context string (personal notes + all documents)
   3. Pre-generates a greeting via Gemini
-  4. Pre-renders the greeting to PCM audio via ElevenLabs
+    4. Pre-renders the greeting to MP3 audio via ElevenLabs
   5. Stores everything under a prep_id for fast retrieval at meeting start
 
 Adapted from zoom-agent/backend/preloader.py.
@@ -26,7 +26,7 @@ _MAX_DOC_CHARS = 8_000
 # In-memory stores (single-process; fine for the typical single-server deploy)
 _prep_contexts: dict[str, str] = {}   # prep_id → context string
 _prep_greetings: dict[str, str] = {}  # prep_id → greeting text
-_prep_audio: dict[str, bytes] = {}    # prep_id → greeting PCM bytes
+_prep_audio: dict[str, str] = {}      # prep_id → greeting MP3 base64
 
 
 @dataclass
@@ -67,7 +67,7 @@ async def prepare(
     via the calling async route handler.
     """
     from .conversation import generate_greeting
-    from .tts import text_to_speech_pcm
+    from .tts import text_to_speech_mp3_b64
 
     prep_id = str(uuid.uuid4())
     doc_names = [fname for fname, _ in documents]
@@ -86,10 +86,10 @@ async def prepare(
 
     # Pre-render greeting audio (best-effort — meeting still works without it)
     try:
-        audio_pcm = text_to_speech_pcm(greeting)
-        _prep_audio[prep_id] = audio_pcm
+        audio_mp3_b64 = text_to_speech_mp3_b64(greeting)
+        _prep_audio[prep_id] = audio_mp3_b64
         logger.info(
-            "Greeting audio pre-rendered prep_id=%s bytes=%d", prep_id, len(audio_pcm)
+            "Greeting audio pre-rendered prep_id=%s chars=%d", prep_id, len(audio_mp3_b64)
         )
     except Exception as exc:
         logger.warning("Greeting audio pre-render failed prep_id=%s: %s", prep_id, exc)
@@ -112,8 +112,8 @@ def get_greeting_text(prep_id: str) -> Optional[str]:
     return _prep_greetings.get(prep_id)
 
 
-def get_greeting_audio(prep_id: str) -> Optional[bytes]:
-    """Return the pre-rendered greeting PCM bytes, or None."""
+def get_greeting_audio(prep_id: str) -> Optional[str]:
+    """Return the pre-rendered greeting MP3 base64, or None."""
     return _prep_audio.get(prep_id)
 
 

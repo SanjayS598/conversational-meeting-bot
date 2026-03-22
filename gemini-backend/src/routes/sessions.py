@@ -2,7 +2,9 @@
 FastAPI router for all /brain/sessions/:id/* endpoints.
 
 Endpoints:
-  POST   /brain/sessions/{id}/start    — create session, start live audio
+    POST   /brain/sessions/{id}/start    — create session, initialize meeting state
+    POST   /brain/sessions/{id}/bot-joined — trigger initial greeting after join
+    POST   /brain/sessions/{id}/transcript — ingest Recall.ai transcript segment
   WS     /brain/sessions/{id}/audio    — stream raw PCM audio chunks
   POST   /brain/sessions/{id}/audio    — single audio chunk (non-WS fallback)
   GET    /brain/sessions/{id}/context  — current session config + meeting state
@@ -81,6 +83,11 @@ class CaptionSegmentRequest(BaseModel):
     speaker: str
     text: str
     elapsed_ms: int
+
+
+class RecallTranscriptRequest(BaseModel):
+    speaker: str
+    text: str
 
 
 def _join_transcript_lines(transcript: list[object]) -> str:
@@ -206,9 +213,9 @@ async def start_session(
 ) -> StartSessionResponse:
     """
     Create a new meeting session.
-    Starts the Gemini Live audio transcription session.
-    If prep_id and bot_display_name are provided the conversational AI is also
-    activated: context is loaded, and a greeting is injected after a short delay.
+    If prep_id and bot_display_name are provided the conversational AI state is
+    attached immediately. Greeting injection happens later via /bot-joined once
+    Recall.ai confirms the bot is actually in the meeting.
     """
     # Allow caller to override session_id
     final_id = session_id if session_id != "new" else str(uuid.uuid4())
@@ -255,12 +262,9 @@ async def start_session(
 def _activate_conversational_ai(
     session_id: str, display_name: str, prep_id: str
 ) -> None:
-    """Attach conversational AI and schedule greeting injection (fire-and-forget)."""
-    import asyncio
-
+    """Attach conversational AI context for a session."""
     from ..voice import conversation as conv
     from ..voice import preloader
-    from ..voice import injector
 
     context = preloader.get_context(prep_id) or ""
     conv.attach_session(session_id, display_name, context)
@@ -268,23 +272,39 @@ def _activate_conversational_ai(
         "Conversational AI activated session_id=%s display_name=%s", session_id, display_name
     )
 
-    # Schedule greeting injection — delay gives the bot time to fully appear in Zoom
-    async def _inject_greeting() -> None:
-        await asyncio.sleep(8)  # wait for Puppeteer bot to settle in the meeting
-        greeting_audio = preloader.get_greeting_audio(prep_id)
-        if greeting_audio:
-            logger.info("Injecting pre-rendered greeting session_id=%s", session_id)
-            await injector.inject_audio(session_id, greeting_audio)
-        else:
-            greeting_text = preloader.get_greeting_text(prep_id)
-            if greeting_text:
-                logger.info(
-                    "Injecting live-rendered greeting session_id=%s", session_id
-                )
-                await injector.inject_text(session_id, greeting_text)
-        preloader.clear(prep_id)
 
-    asyncio.create_task(_inject_greeting())
+@router.post("/{session_id}/bot-joined", status_code=status.HTTP_202_ACCEPTED)
+async def bot_joined(
+    session_id: str,
+    session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+) -> dict:
+    """Inject the pre-rendered greeting after Recall.ai confirms the bot joined."""
+    session = await session_manager.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    prep_id = session.config.prep_id
+    if not prep_id:
+        return {"accepted": True, "greeting": False}
+
+    from ..voice import injector
+    from ..voice import preloader
+
+    greeting_audio = preloader.get_greeting_audio(prep_id)
+    if greeting_audio:
+        logger.info("Injecting pre-rendered greeting session_id=%s", session_id)
+        await injector.inject_audio(session_id, greeting_audio)
+        preloader.clear(prep_id)
+        return {"accepted": True, "greeting": True}
+
+    greeting_text = preloader.get_greeting_text(prep_id)
+    if greeting_text:
+        logger.info("Injecting live-rendered greeting session_id=%s", session_id)
+        await injector.inject_text(session_id, greeting_text)
+        preloader.clear(prep_id)
+        return {"accepted": True, "greeting": True}
+
+    return {"accepted": True, "greeting": False}
 
 
 # ─── WebSocket /brain/sessions/{session_id}/audio ────────────────────────────
@@ -451,6 +471,36 @@ async def caption_segment_http(
         start_ms=timestamp_ms,
         end_ms=timestamp_ms,
         text=new_text,
+        confidence=0.98,
+    )
+    await state_updater.process(session_id, segment)
+    return {"accepted": True}
+
+
+@router.post("/{session_id}/transcript", status_code=status.HTTP_202_ACCEPTED)
+async def transcript_segment_http(
+    session_id: str,
+    body: RecallTranscriptRequest,
+    session_manager: Annotated[SessionManager, Depends(get_session_manager)],
+    state_updater: Annotated[StateUpdater, Depends(get_state_updater)],
+) -> dict:
+    """HTTP ingest endpoint for Recall.ai transcript segments."""
+    session = await session_manager.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Empty transcript text")
+
+    speaker = (body.speaker or "Participant").strip() or "Participant"
+    timestamp_ms = int(time.time() * 1000)
+    segment = TranscriptSegment(
+        session_id=session_id,
+        speaker_label=speaker,
+        start_ms=timestamp_ms,
+        end_ms=timestamp_ms,
+        text=text,
         confidence=0.98,
     )
     await state_updater.process(session_id, segment)

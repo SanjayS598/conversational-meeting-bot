@@ -1,16 +1,8 @@
-"""
-ElevenLabs Text-to-Speech service.
-
-Converts text to PCM audio bytes (16 kHz, mono, int16 little-endian) which
-can be sent directly to the zoom-gateway audio-out WebSocket.
-
-Uses ElevenLabs `pcm_16000` output format to avoid any MP3 decoding step.
-Chunks long texts at word boundaries to stay within ElevenLabs limits, then
-concatenates the raw PCM bytes.
-"""
+"""ElevenLabs Text-to-Speech helpers for Recall.ai audio injection."""
 
 from __future__ import annotations
 
+import base64
 import logging
 
 import httpx
@@ -21,18 +13,11 @@ logger = logging.getLogger(__name__)
 
 _CHUNK_WORDS = 50  # max words per ElevenLabs request
 _ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/text-to-speech"
-_OUTPUT_FORMAT = "pcm_16000"  # 16-bit PCM, 16 kHz, mono — matches zoom-gateway format
+_OUTPUT_FORMAT = "mp3_44100_128"
 
 
-def text_to_speech_pcm(text: str) -> bytes:
-    """Convert *text* to raw PCM bytes (16 kHz, mono, int16 LE).
-
-    Automatically splits long texts into 50-word chunks and concatenates the
-    PCM output so the caller gets a single continuous audio stream.
-
-    Raises:
-        RuntimeError: if ElevenLabs API returns an error or config is missing.
-    """
+def text_to_speech_mp3_b64(text: str) -> str:
+    """Convert text to base64-encoded MP3 audio for Recall.ai output_audio."""
     if not settings.elevenlabs_api_key or not settings.elevenlabs_voice_id:
         raise RuntimeError(
             "ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID must be set in .env"
@@ -46,22 +31,22 @@ def text_to_speech_pcm(text: str) -> bytes:
             chunks.append(chunk)
 
     if not chunks:
-        return b""
+        return ""
 
-    pcm_parts: list[bytes] = []
+    mp3_parts: list[bytes] = []
     for chunk in chunks:
-        pcm_parts.append(_render_single(chunk))
+        mp3_parts.append(_render_single_mp3(chunk))
 
-    return b"".join(pcm_parts)
+    return base64.b64encode(b"".join(mp3_parts)).decode("ascii")
 
 
-def _render_single(text: str) -> bytes:
-    """Render a single text chunk via ElevenLabs and return PCM bytes."""
+def _render_single_mp3(text: str) -> bytes:
+    """Render a single text chunk via ElevenLabs and return MP3 bytes."""
     url = f"{_ELEVENLABS_API_URL}/{settings.elevenlabs_voice_id}"
     headers = {
         "xi-api-key": settings.elevenlabs_api_key,
         "Content-Type": "application/json",
-        "Accept": "audio/wav",  # ElevenLabs returns raw PCM with wav header for pcm_*
+        "Accept": "audio/mpeg",
     }
     payload = {
         "text": text,
@@ -83,10 +68,5 @@ def _render_single(text: str) -> bytes:
 
     raw = resp.content
 
-    # ElevenLabs pcm_16000 may return with a WAV header — strip it if present.
-    if raw[:4] == b"RIFF":
-        # WAV header is 44 bytes; skip to PCM data
-        raw = raw[44:]
-
-    logger.debug("ElevenLabs rendered %d PCM bytes for %d chars", len(raw), len(text))
+    logger.debug("ElevenLabs rendered %d MP3 bytes for %d chars", len(raw), len(text))
     return raw

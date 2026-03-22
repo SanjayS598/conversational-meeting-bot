@@ -40,11 +40,17 @@ export async function POST(req: Request) {
       body: formData,
     });
 
-    const data = await upstream.json();
+    const text = await upstream.text();
+    let data: Record<string, unknown> = {};
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // non-JSON error body from upstream
+    }
 
     if (!upstream.ok) {
       return NextResponse.json(
-        { error: data?.detail ?? "Voice preparation failed" },
+        { error: (data?.detail as string) ?? text ?? "Voice preparation failed" },
         { status: upstream.status }
       );
     }

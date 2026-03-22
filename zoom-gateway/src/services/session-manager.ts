@@ -1,8 +1,7 @@
 import axios from 'axios';
-import WebSocket from 'ws';
 import { config } from '../config';
 import { gatewayEmitter } from '../events/emitter';
-import { ZoomJoiner } from './zoom-joiner';
+import { recallClient } from './recall-client';
 import { geminiBrainClient } from './gemini-brain-client';
 import { parseZoomUrl } from '../utils/zoom-url';
 import type {
@@ -18,9 +17,8 @@ import type {
 
 interface ActiveSession {
   session: Session;
-  joiner: ZoomJoiner;
-  /** WebSocket clients subscribed to inbound meeting audio. */
-  audioInClients: Set<WebSocket>;
+  recallBotId: string;
+  botJoinedNotified?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -29,19 +27,18 @@ interface ActiveSession {
 
 class SessionManager {
   private readonly sessions = new Map<string, ActiveSession>();
+  /** Reverse lookup: Recall.ai bot ID → our session ID */
+  private readonly botIdToSession = new Map<string, string>();
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  /** Create and asynchronously start a bot session. Returns immediately with 'created' status. */
+  /** Create and asynchronously start a bot session via Recall.ai. Returns immediately. */
   async startSession(input: StartSessionInput): Promise<Session> {
-    // Idempotency: return existing session if already started with this ID
     const existing = this.sessions.get(input.meeting_session_id);
     if (existing) return existing.session;
 
     if (this.sessions.size >= config.maxConcurrentSessions) {
-      throw new Error(
-        `Maximum concurrent sessions (${config.maxConcurrentSessions}) reached`,
-      );
+      throw new Error(`Maximum concurrent sessions (${config.maxConcurrentSessions}) reached`);
     }
 
     const { meetingId } = parseZoomUrl(input.meeting_url);
@@ -57,40 +54,10 @@ class SessionManager {
       bot_display_name: input.bot_display_name ?? config.botDisplayName,
     };
 
-    let _audioChunkCount = 0;
-    const joiner = new ZoomJoiner(session.id, {
-      onAudioChunk: (int16Array) => {
-        _audioChunkCount++;
-        if (_audioChunkCount === 1 || _audioChunkCount % 500 === 0) {
-          console.log(`[SessionManager] audio chunks received session=${session.id} count=${_audioChunkCount}`);
-        }
-        geminiBrainClient.sendAudio(session.id, int16Array);
-        this.broadcastAudioChunk(session.id, int16Array);
-      },
-      onStatusChange: (status, error) => {
-        if (status === 'ended') {
-          // Meeting ended naturally in Zoom (host ended it, bot was removed, etc.).
-          // We must stop the Gemini brain session so Deepgram is flushed and the
-          // end-of-meeting summary is generated — stopSession() handles all of that.
-          // joiner.cleanup() has already run inside startEndMonitor, so we skip it here;
-          // stopSession() also calls cleanup() but that is idempotent (browser is null).
-          this.stopSession(session.id).catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.warn(`[SessionManager] natural-end stopSession failed session=${session.id}: ${msg}`);
-            // Fall back to updating status so the UI at least knows the session ended
-            this.updateStatus(session.id, 'ended', msg);
-          });
-        } else {
-          this.updateStatus(session.id, status, error);
-        }
-      },
-    });
-
-    this.sessions.set(session.id, { session, joiner, audioInClients: new Set() });
+    this.sessions.set(session.id, { session, recallBotId: '', botJoinedNotified: false });
     this.emit('session.created', session.id);
 
-    // Join async — caller gets a 202 immediately; status events track progress
-    this.doJoin(session, joiner, input.passcode, input.meeting_objective, input.prep_notes, input.prep_id).catch((err: unknown) => {
+    this.doJoin(session, input).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[SessionManager] Join failed for ${session.id}: ${msg}`);
       this.updateStatus(session.id, 'failed', msg);
@@ -101,14 +68,15 @@ class SessionManager {
 
   async stopSession(sessionId: string): Promise<void> {
     const active = this.sessions.get(sessionId);
-    if (!active) throw new Error(`Session not found: ${sessionId}`);
+    if (!active) return; // Already gone — idempotent
 
-    await active.joiner.cleanup();
+    if (active.recallBotId) {
+      this.botIdToSession.delete(active.recallBotId);
+      await recallClient.removeBot(active.recallBotId).catch(() => {});
+    }
+
     active.session.ended_at = new Date();
-
-    // Close the brain session first so the backend can flush the last audio buffer.
     await geminiBrainClient.stopSession(sessionId).catch(() => {});
-
     this.updateStatus(sessionId, 'ended');
     this.sessions.delete(sessionId);
   }
@@ -121,90 +89,106 @@ class SessionManager {
     return Array.from(this.sessions.values()).map((a) => a.session);
   }
 
-  // ── Audio WebSocket subscription ──────────────────────────────────────────
-
-  /** Subscribe a WS client to receive raw PCM audio captured from the meeting. */
-  subscribeAudioIn(sessionId: string, ws: WebSocket): void {
-    const active = this.sessions.get(sessionId);
-    if (!active) {
-      ws.close(1008, `Session not found: ${sessionId}`);
-      return;
-    }
-    active.audioInClients.add(ws);
-    ws.once('close', () => active.audioInClients.delete(ws));
+  /** Map Recall.ai bot IDs back to our session IDs (used by the webhook route). */
+  getSessionIdByBotId(botId: string): string | undefined {
+    return this.botIdToSession.get(botId);
   }
 
-  /**
-   * Receive synthesised speech audio from the ElevenLabs Voice Runtime and
-   * inject it into the meeting.
-   *
-   * Expected wire format: raw int16 PCM, little-endian, 16 kHz mono.
-   */
-  async receiveAudioOut(sessionId: string, data: Buffer): Promise<void> {
+  markJoined(botId: string): void {
+    const sessionId = this.botIdToSession.get(botId);
+    if (!sessionId) return;
+
     const active = this.sessions.get(sessionId);
     if (!active) return;
 
-    const int16Array: number[] = [];
-    for (let i = 0; i < data.length; i += 2) {
-      int16Array.push(data.readInt16LE(i));
-    }
-
-    await active.joiner.injectAudio(int16Array);
-    this.emit('audio.chunk.played', sessionId);
+    active.session.joined_at ??= new Date();
+    this.updateStatus(sessionId, 'joined');
   }
 
-  // ── Private: join ─────────────────────────────────────────────────────────
+  async notifyBotJoined(sessionId: string): Promise<void> {
+    const active = this.sessions.get(sessionId);
+    if (!active || active.botJoinedNotified) return;
 
-  private async doJoin(
-    session: Session,
-    joiner: ZoomJoiner,
-    passcode?: string,
-    meetingObjective?: string,
-    prepNotes?: string,
-    prepId?: string,
-  ): Promise<void> {
-    await joiner.join(session.meeting_url, session.bot_display_name, passcode);
-    const active = this.sessions.get(session.id);
-    if (active) active.session.joined_at = new Date();
-
-    // Start Gemini brain session now that we've joined the meeting
-    geminiBrainClient.startSession(session.id, {
-      meetingObjective: meetingObjective ?? `Attend and take notes for meeting at ${session.meeting_url}`,
-      prepNotes,
-      prepId,
-      botDisplayName: session.bot_display_name,
-    }).catch((err: unknown) => {
-      console.warn(`[SessionManager] Gemini brain start failed for ${session.id}:`, err);
+    active.botJoinedNotified = true;
+    await geminiBrainClient.notifyBotJoined(sessionId).catch((err: unknown) => {
+      active.botJoinedNotified = false;
+      console.warn(`[SessionManager] notifyBotJoined failed session=${sessionId}:`, err);
     });
   }
 
-  // ── Private: audio broadcast ──────────────────────────────────────────────
-
-  private broadcastAudioChunk(sessionId: string, int16Array: number[]): void {
+  /** Receive base64-encoded MP3 from gemini-backend and speak it via Recall.ai. */
+  async receiveAudioOut(sessionId: string, b64Mp3: string): Promise<void> {
     const active = this.sessions.get(sessionId);
-    if (!active || active.audioInClients.size === 0) return;
-
-    // Wire format: [8 bytes timestamp BigInt64LE] + [N * 2 bytes int16 PCM]
-    const header = Buffer.allocUnsafe(8);
-    header.writeBigInt64LE(BigInt(Date.now()), 0);
-
-    const pcm = Buffer.allocUnsafe(int16Array.length * 2);
-    for (let i = 0; i < int16Array.length; i++) {
-      pcm.writeInt16LE(int16Array[i], i * 2);
-    }
-
-    const packet = Buffer.concat([header, pcm]);
-
-    for (const ws of active.audioInClients) {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(packet);
-      }
-    }
-
-    this.emit('audio.chunk.received', sessionId);
+    if (!active?.recallBotId) return;
+    await recallClient.outputAudio(active.recallBotId, b64Mp3);
   }
 
-  // ── Private: status & events ──────────────────────────────────────────────
+  // ── Private ───────────────────────────────────────────────────────────────
+
+  private async doJoin(session: Session, input: StartSessionInput): Promise<void> {
+    if (!config.recallWebhookUrl) {
+      throw new Error('RECALL_WEBHOOK_URL is not set — Recall.ai needs a public URL to send events');
+    }
+
+    this.updateStatus(session.id, 'joining');
+    console.log(`[SessionManager] Creating Recall.ai bot for session=${session.id} url=${session.meeting_url}`);
+
+    const { id: botId } = await recallClient.createBot(
+      session.meeting_url,
+      session.bot_display_name,
+      config.recallWebhookUrl,
+    );
+
+    const active = this.sessions.get(session.id);
+    if (active) {
+      active.recallBotId = botId;
+    }
+    this.botIdToSession.set(botId, session.id);
+    console.log(`[SessionManager] Recall.ai bot=${botId} session=${session.id} — starting brain session`);
+
+    this.pollBotStatus(session.id, botId).catch((err: unknown) => {
+      console.warn(`[SessionManager] pollBotStatus failed session=${session.id}:`, err);
+    });
+
+    await geminiBrainClient.startSession(session.id, {
+      meetingObjective: input.meeting_objective ?? `Take notes for meeting at ${session.meeting_url}`,
+      prepNotes: input.prep_notes,
+      prepId: input.prep_id,
+      botDisplayName: session.bot_display_name,
+    }).catch((err: unknown) => {
+      console.warn(`[SessionManager] Brain start failed session=${session.id}:`, err);
+    });
+  }
+
+  private async pollBotStatus(sessionId: string, botId: string): Promise<void> {
+    const maxAttempts = 36;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const active = this.sessions.get(sessionId);
+      if (!active || active.recallBotId !== botId) return;
+
+      try {
+        const bot = await recallClient.getBot(botId);
+        const status = bot.status?.code ?? '';
+
+        if (status === 'in_call_recording' || status === 'in_call_not_recording') {
+          this.markJoined(botId);
+          await this.notifyBotJoined(sessionId);
+          return;
+        }
+
+        if (status === 'done' || status === 'fatal' || status === 'call_ended') {
+          await this.stopSession(sessionId);
+          return;
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[SessionManager] Recall bot poll attempt ${attempt + 1} failed session=${sessionId}: ${msg}`);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+  }
 
   private updateStatus(sessionId: string, status: SessionStatus, error?: string): void {
     const active = this.sessions.get(sessionId);
@@ -217,11 +201,7 @@ class SessionManager {
     this.notifyControlBackend(active.session);
   }
 
-  private emit(
-    type: SessionEvent['type'],
-    sessionId: string,
-    payload?: Record<string, unknown>,
-  ): void {
+  private emit(type: SessionEvent['type'], sessionId: string, payload?: Record<string, unknown>): void {
     gatewayEmitter.emitEvent({
       type,
       session_id: sessionId,
@@ -230,7 +210,6 @@ class SessionManager {
     });
   }
 
-  /** Best-effort push of session state to the Control Backend. */
   private async notifyControlBackend(session: Session): Promise<void> {
     try {
       console.log(`[SessionManager] notifyControlBackend session=${session.id} status=${session.status}`);
@@ -248,14 +227,15 @@ class SessionManager {
         },
         {
           headers: { Authorization: `Bearer ${config.internalServiceSecret}` },
-          timeout: 3_000,
+          timeout: 10_000,
         },
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[SessionManager] notifyControlBackend failed session=${session.id} status=${session.status}: ${msg}`);
+      console.warn(`[SessionManager] notifyControlBackend failed session=${session.id}: ${msg}`);
     }
   }
 }
 
 export const sessionManager = new SessionManager();
+

@@ -53,6 +53,25 @@ router.post('/:id/stop', async (req, res) => {
   }
 });
 
+// POST /sessions/:id/audio-out
+// Body: { b64_mp3: string }
+router.post('/:id/audio-out', async (req, res) => {
+  const { b64_mp3 } = req.body as { b64_mp3?: string };
+
+  if (!b64_mp3 || typeof b64_mp3 !== 'string') {
+    res.status(400).json({ error: 'b64_mp3 is required' });
+    return;
+  }
+
+  try {
+    await sessionManager.receiveAudioOut(req.params.id, b64_mp3);
+    res.status(202).json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal error';
+    res.status(500).json({ error: message });
+  }
+});
+
 // GET /sessions/:id/status
 router.get('/:id/status', (req, res) => {
   const session = sessionManager.getSession(req.params.id);

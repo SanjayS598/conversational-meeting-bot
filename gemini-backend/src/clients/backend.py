@@ -18,7 +18,7 @@ from ..schemas.session import AgentResponse, MeetingState, MeetingSummary, Trans
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT = 10.0  # seconds
+DEFAULT_TIMEOUT = 30.0  # seconds
 EVENTS_PATH = "/api/internal/events"
 
 

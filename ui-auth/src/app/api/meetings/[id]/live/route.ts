@@ -6,7 +6,7 @@ interface Params {
   params: Promise<{ id: string }>;
 }
 
-/** GET /api/meetings/:id/live — polled by the live meeting page every 2 s */
+/** GET /api/meetings/:id/live — polled by the live meeting page */
 export async function GET(_req: Request, { params }: Params) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
@@ -16,19 +16,37 @@ export async function GET(_req: Request, { params }: Params) {
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const { data: session } = await supabase
+    .from("meeting_sessions")
+    .select("*")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!session) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // During launch and failure states, return the session row only.
+  // This avoids hammering Supabase with transcript/notes/action queries while the
+  // page is waiting for the bot to settle into the call.
+  if (["created", "joining", "failed"].includes(session.status)) {
+    const state: LiveSessionState = {
+      session,
+      transcript: [],
+      notes: null,
+      action_items: [],
+      agent_speaking: false,
+      last_event: null,
+    };
+
+    return NextResponse.json(state);
+  }
+
   const [
-    { data: session },
     { data: transcript },
     { data: notes },
     { data: actions },
     { data: events },
   ] = await Promise.all([
-    supabase
-      .from("meeting_sessions")
-      .select("*")
-      .eq("id", id)
-      .eq("user_id", user.id)
-      .single(),
     supabase
       .from("transcript_segments")
       .select("*")
@@ -52,8 +70,6 @@ export async function GET(_req: Request, { params }: Params) {
       .order("created_at", { ascending: false })
       .limit(1),
   ]);
-
-  if (!session) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const lastEvent = events?.[0] ?? null;
   const agentSpeaking =

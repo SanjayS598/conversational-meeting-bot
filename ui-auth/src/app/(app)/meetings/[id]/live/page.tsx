@@ -48,8 +48,9 @@ export default function LiveMeetingPage({ params }: Props) {
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finalizingRef = useRef(false);
+  const fetchInFlightRef = useRef(false);
 
   // Resolve params
   useEffect(() => {
@@ -57,6 +58,9 @@ export default function LiveMeetingPage({ params }: Props) {
   }, [params]);
 
   const fetchLiveState = useCallback(async (id: string) => {
+    if (fetchInFlightRef.current) return null;
+    fetchInFlightRef.current = true;
+
     try {
       const res = await fetch(`/api/meetings/${id}/live`);
       if (!res.ok) throw new Error("Failed to fetch live state");
@@ -74,39 +78,65 @@ export default function LiveMeetingPage({ params }: Props) {
         }
         router.push(`/meetings/${id}/summary`);
       }
+      return data;
     } catch {
       setError("Lost connection — retrying…");
+      return null;
+    } finally {
+      fetchInFlightRef.current = false;
     }
   }, [router]);
+
+  const schedulePoll = useCallback((id: string, status?: string) => {
+    if (pollRef.current) clearTimeout(pollRef.current);
+
+    if (!id || status === "ended" || status === "failed") {
+      return;
+    }
+
+    const delay = status === "joined" ? 3000 : 2000;
+
+    pollRef.current = setTimeout(async () => {
+      const data = await fetchLiveState(id);
+      schedulePoll(id, data?.session.status);
+    }, delay);
+  }, [fetchLiveState]);
 
   // Start session (if not already started) and begin polling
   useEffect(() => {
     if (!sessionId) return;
 
     async function init() {
+      let currentStatus: string | undefined;
+
       // Check current status first — if new meeting page already started it, skip the start call
       try {
         const check = await fetch(`/api/meetings/${sessionId}/live`);
         if (check.ok) {
           const data: LiveSessionState = await check.json();
+          currentStatus = data.session.status;
           if (data.session.status === "created") {
             // Only start if session hasn't been kicked off yet
             await fetch(`/api/meetings/${sessionId}/start`, { method: "POST" }).catch(() => {});
+            currentStatus = "joining";
           }
           setState(data);
         }
       } catch {
         // Fall back to trying start anyway
         await fetch(`/api/meetings/${sessionId}/start`, { method: "POST" }).catch(() => {});
+        currentStatus = "joining";
       }
-      pollRef.current = setInterval(() => fetchLiveState(sessionId!), 500);
+
+      const latest = await fetchLiveState(sessionId);
+      schedulePoll(sessionId, latest?.session.status ?? currentStatus);
     }
 
     init();
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) clearTimeout(pollRef.current);
     };
-  }, [sessionId, fetchLiveState]);
+  }, [sessionId, fetchLiveState, schedulePoll]);
 
   // Auto-scroll transcript
   useEffect(() => {

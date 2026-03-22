@@ -21,7 +21,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # ── Gemini backend (Python / FastAPI / faster-whisper) ────────────────────
+  # ── Gemini backend (Python / FastAPI / transcript + TTS pipeline) ─────────
 
   gemini-backend:
     build:
@@ -34,6 +34,7 @@ services:
       REDIS_URL: redis://redis:6379
       BACKEND_URL: http://ui-auth:3000
       VOICE_RUNTIME_URL: http://voice-cloning:8083
+      ZOOM_GATEWAY_URL: http://zoom-gateway:3001
     volumes:
       # Hot-reload: only mount source; Python deps stay in the image
       - ./gemini-backend/src:/app/src
@@ -52,13 +53,11 @@ services:
       retries: 12
       start_period: 40s
 
-  # ── Zoom gateway (TypeScript / Express / Puppeteer headless Chrome) ────────
+  # ── Zoom gateway (TypeScript / Express / Recall.ai webhook bridge) ─────────
 
   zoom-gateway:
     build:
       context: ./zoom-gateway
-    # Force x86-64 so Puppeteer's bundled Chromium works on Apple Silicon via Rosetta
-    platform: linux/amd64
     env_file:
       - path: ./zoom-gateway/.env
         required: false
@@ -68,12 +67,10 @@ services:
       CONTROL_BACKEND_URL: http://ui-auth:3000
       VOICE_SERVICE_URL: http://voice-cloning:8083
     volumes:
-      # Hot-reload: only mount source; node_modules + Chrome stay in the image
+      # Hot-reload: only mount source; node_modules stays in the image
       - ./zoom-gateway/src:/app/src
     ports:
       - "3001:3001"
-    # Chrome needs extra shared memory; 2 GB avoids renderer crashes
-    shm_size: "2gb"
     depends_on:
       gemini-backend:
         condition: service_healthy

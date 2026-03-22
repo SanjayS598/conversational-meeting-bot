@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Video, Link2, AlertCircle, Bot } from "lucide-react";
+import { Cast, Link2, AlertCircle, AudioLines, NotebookPen, Video } from "lucide-react";
 
 export default function NewMeetingPage() {
   const router = useRouter();
@@ -38,7 +38,10 @@ export default function NewMeetingPage() {
   return (
     <div className="p-8 max-w-2xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Start a New Meeting</h1>
+        <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+            <Video className="w-6 h-6 text-[#6DD8F0]" />
+            Start a New Meeting
+          </h1>
         <p className="text-slate-400 text-sm mt-1">
           Paste your Zoom meeting link to launch the AI assistant.
         </p>
@@ -76,9 +79,9 @@ export default function NewMeetingPage() {
               What Clairo will do
             </p>
             {[
-              { icon: Video, text: "Join the Zoom call as a silent participant" },
-              { icon: Bot, text: "Listen and transcribe the conversation in real time" },
-              { icon: Bot, text: "Suggest replies and capture notes automatically" },
+              { icon: Cast, text: "Join the Zoom call as an active participant" },
+              { icon: AudioLines, text: "Listen and transcribe the conversation in real time" },
+              { icon: NotebookPen, text: "Suggest replies and capture notes automatically" },
             ].map(({ icon: Icon, text }, i) => (
               <div key={i} className="flex items-center gap-2.5 text-sm text-slate-300">
                 <Icon className="w-4 h-4 text-[#6DD8F0] flex-shrink-0" />
@@ -102,7 +105,7 @@ export default function NewMeetingPage() {
               </>
             ) : (
               <>
-                <Video className="w-4 h-4" />
+                <Cast className="w-4 h-4" />
                 Launch Meeting Assistant
               </>
             )}

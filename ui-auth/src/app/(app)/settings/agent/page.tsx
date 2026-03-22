@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Bot, Save, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Settings, Save, AlertCircle, CheckCircle2 } from "lucide-react";
 import type { AgentMode, UserPreferences } from "@/lib/types";
 import clsx from "clsx";
 
@@ -84,7 +84,7 @@ export default function AgentSettingsPage() {
     <div className="p-8 max-w-2xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Bot className="w-6 h-6 text-[#6DD8F0]" />
+          <Settings className="w-6 h-6 text-[#6DD8F0]" />
           Agent Settings
         </h1>
         <p className="text-slate-400 text-sm mt-1">

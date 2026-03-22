@@ -14,7 +14,7 @@ export class VoiceProfileService {
     requireFields(input, ["user_id", "display_name"]);
 
     const profile = {
-      id: createId("voice"),
+      id: input.id || createId("voice"),
       user_id: input.user_id,
       provider: "elevenlabs",
       provider_voice_id: null,
@@ -43,6 +43,22 @@ export class VoiceProfileService {
 
   getProfile(profileId) {
     return this.#getProfileOrThrow(profileId);
+  }
+
+  getProfilesByUser(userId) {
+    return this.store.read().voiceProfiles.filter((item) => item.user_id === userId);
+  }
+
+  getDefaultReadyProfileForUser(userId) {
+    const profiles = this.getProfilesByUser(userId)
+      .filter((item) => ["ready", "verification_required"].includes(item.status))
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+
+    if (profiles.length === 0) {
+      throw httpError(404, `No ready voice profile found for user: ${userId}`);
+    }
+
+    return profiles[0];
   }
 
   addSample(profileId, input) {

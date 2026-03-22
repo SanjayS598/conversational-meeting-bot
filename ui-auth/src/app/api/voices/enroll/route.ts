@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { callService } from "@/lib/service-client";
 import { NextResponse } from "next/server";
 
 /** POST /api/voices/enroll */
@@ -18,33 +19,32 @@ export async function POST(req: Request) {
     );
   }
 
-  // Check if a profile already exists
-  const { data: existing } = await supabase
-    .from("voice_profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .single();
+  const vrUrl = process.env.VOICE_RUNTIME_URL ?? "http://localhost:8083";
 
-  if (existing) {
+  try {
+    const vrRes = await callService(vrUrl, "/voices/enroll", {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: user.id,
+        display_name: body.display_name ?? "My Voice",
+        description: body.description ?? "",
+        consent_confirmed: true,
+      }),
+    });
+
+    const vrBody = await vrRes.json().catch(() => ({}));
+    if (!vrRes.ok) {
+      return NextResponse.json(
+        { error: vrBody.error ?? "Voice enrollment failed" },
+        { status: vrRes.status }
+      );
+    }
+
+    return NextResponse.json(vrBody, { status: 201 });
+  } catch {
     return NextResponse.json(
-      { error: "Voice profile already exists" },
-      { status: 409 }
+      { error: "Voice service is unavailable" },
+      { status: 503 }
     );
   }
-
-  const { data, error } = await supabase
-    .from("voice_profiles")
-    .insert({
-      user_id: user.id,
-      provider: "elevenlabs",
-      provider_voice_id: null,
-      status: "pending",
-      sample_count: 0,
-      consent_confirmed: true,
-    })
-    .select()
-    .single();
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data, { status: 201 });
 }

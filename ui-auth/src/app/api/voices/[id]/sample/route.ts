@@ -21,29 +21,24 @@ export async function POST(req: Request, { params }: Params) {
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Verify profile ownership
-  const { data: profile } = await supabase
-    .from("voice_profiles")
-    .select("id, sample_count")
-    .eq("id", id)
-    .eq("user_id", user.id)
-    .single();
-
-  if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  // Forward the raw multipart form to the Voice Runtime
   const formData = await req.formData();
+  const sample = formData.get("sample");
+  if (!(sample instanceof File)) {
+    return NextResponse.json({ error: "Audio file is required" }, { status: 400 });
+  }
+
+  const buffer = Buffer.from(await sample.arrayBuffer());
   const vrUrl = process.env.VOICE_RUNTIME_URL ?? "http://localhost:4003";
 
   try {
-    const vrRes = await callService(vrUrl, `/voices/${id}/sample`, {
-      method: "POST",
-      body: formData,
-      headers: {
-        // Let fetch set the Content-Type with boundary for multipart
-        Authorization: `Bearer ${process.env.INTERNAL_SERVICE_TOKEN}`,
-      },
-    });
+    let vrRes = await sendSampleToVoiceRuntime(vrUrl, id, sample, buffer);
+
+    if (vrRes.status === 404) {
+      return NextResponse.json(
+        { error: "Voice profile not found. Create a voice first." },
+        { status: 404 }
+      );
+    }
 
     if (!vrRes.ok) {
       const errBody = await vrRes.json().catch(() => ({}));
@@ -52,18 +47,32 @@ export async function POST(req: Request, { params }: Params) {
         { status: vrRes.status }
       );
     }
+    const body = await vrRes.json().catch(() => ({}));
+    if (body.user_id !== user.id) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(body);
   } catch {
-    // Voice service not available (dev mode) — still increment count
+    return NextResponse.json(
+      { error: "Voice service unavailable" },
+      { status: 503 }
+    );
   }
+}
 
-  // Increment sample_count in DB
-  const { data: updated, error } = await supabase
-    .from("voice_profiles")
-    .update({ sample_count: (profile.sample_count ?? 0) + 1 })
-    .eq("id", id)
-    .select()
-    .single();
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(updated);
+function sendSampleToVoiceRuntime(
+  vrUrl: string,
+  id: string,
+  sample: File,
+  buffer: Buffer
+) {
+  return callService(vrUrl, `/voices/${id}/sample`, {
+    method: "POST",
+    body: JSON.stringify({
+      sample_name: sample.name,
+      mime_type: sample.type || "application/octet-stream",
+      audio_base64: buffer.toString("base64"),
+    }),
+  });
 }

@@ -44,12 +44,40 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const audioMatch = pathname.match(/^\/audio\/([^/]+)$/);
+    if (req.method === "GET" && audioMatch) {
+      const requested = audioMatch[1];
+      const audioPath = path.join(config.paths.generatedAudio, requested);
+      if (!fs.existsSync(audioPath)) {
+        throw httpError(404, "Audio file not found.");
+      }
+
+      const buffer = fs.readFileSync(audioPath);
+      const contentType = audioPath.endsWith(".json") ? "application/json" : "audio/mpeg";
+      sendBinary(res, 200, buffer, contentType, requested);
+      return;
+    }
+
     if (!authorize(req)) {
       throw httpError(401, "Missing or invalid Authorization header.");
     }
 
     if (req.method === "GET" && pathname === "/voices") {
       sendJson(res, 200, { items: voiceProfileService.listProfiles() });
+      return;
+    }
+
+    const userVoicesMatch = pathname.match(/^\/users\/([^/]+)\/voices$/);
+    if (req.method === "GET" && userVoicesMatch) {
+      const profiles = voiceProfileService.getProfilesByUser(userVoicesMatch[1]);
+      sendJson(res, 200, { items: profiles });
+      return;
+    }
+
+    const userDefaultVoiceMatch = pathname.match(/^\/users\/([^/]+)\/voices\/default$/);
+    if (req.method === "GET" && userDefaultVoiceMatch) {
+      const profile = voiceProfileService.getDefaultReadyProfileForUser(userDefaultVoiceMatch[1]);
+      sendJson(res, 200, profile);
       return;
     }
 
@@ -109,20 +137,6 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && stateMatch) {
       const state = runtimeService.getState(stateMatch[1]);
       sendJson(res, 200, state);
-      return;
-    }
-
-    const audioMatch = pathname.match(/^\/audio\/([^/]+)$/);
-    if (req.method === "GET" && audioMatch) {
-      const requested = audioMatch[1];
-      const audioPath = path.join(config.paths.generatedAudio, requested);
-      if (!fs.existsSync(audioPath)) {
-        throw httpError(404, "Audio file not found.");
-      }
-
-      const buffer = fs.readFileSync(audioPath);
-      const contentType = audioPath.endsWith(".json") ? "application/json" : "audio/mpeg";
-      sendBinary(res, 200, buffer, contentType, requested);
       return;
     }
 

@@ -94,7 +94,7 @@ def _build_state_update_prompt(payload: StateUpdatePayload) -> str:
 
 
 MEETING_SUMMARY_PROMPT = """\
-You are an expert meeting analyst. Your task is to generate a comprehensive, structured meeting summary.
+You are an expert meeting analyst. Your task is to generate a thorough, detailed, structured meeting summary.
 
 You will receive:
 - The meeting objective
@@ -104,20 +104,26 @@ You will receive:
 Generate a complete meeting summary. Return ONLY valid JSON with no markdown fences:
 {
   "title": "<short descriptive title for the meeting (max 10 words)>",
-  "executive_summary": "<concise 2-4 sentence summary of what was discussed and accomplished>",
-  "key_decisions": ["<decision 1>", "<decision 2>", ...],
-  "action_items": [
-    {"description": "<task>", "owner": "<person or null>", "due_hint": "<timeframe or null>"}
+  "executive_summary": "<detailed summary of what was discussed, decided, and accomplished — aim for 5-8 sentences covering the arc of the conversation>",
+  "topics_discussed": [
+    {"topic": "<topic name>", "summary": "<2-4 sentences on what was said, key perspectives, and outcome>"}
   ],
-  "open_questions": ["<question 1>", "<question 2>", ...],
-  "next_steps": ["<next step 1>", "<next step 2>", ...]
+  "key_decisions": ["<decision 1 — include reasoning if mentioned>", "<decision 2>", ...],
+  "action_items": [
+    {"description": "<specific task>", "owner": "<person or null>", "due_hint": "<timeframe or null>", "context": "<why this was assigned>"}
+  ],
+  "open_questions": ["<question 1 — include who raised it if known>", "<question 2>", ...],
+  "next_steps": ["<concrete next step 1>", "<next step 2>", ...],
+  "notable_quotes": ["<verbatim or near-verbatim quote that captures a key moment>", ...]
 }
 
 Rules:
 - Base everything strictly on the transcript — do not invent facts
-- key_decisions should only contain things that were explicitly agreed upon
-- action_items should include owner when a person was clearly assigned
-- next_steps are the concrete things that should happen after this meeting
+- executive_summary must be substantive — avoid vague filler phrases like "various topics were discussed"
+- topics_discussed should capture every distinct subject raised, even briefly
+- key_decisions must be things explicitly agreed upon; include the reasoning behind each if stated
+- action_items: include owner and due_hint whenever discernible from context
+- notable_quotes: pick 1-3 quotes that best capture the meeting's tone or most important moments
 - If the transcript is too short or silent, still return the JSON structure with empty arrays
 """
 
@@ -347,6 +353,8 @@ class GeminiProvider(AIProvider):
                 "action_items": [],
                 "open_questions": [],
                 "next_steps": [],
+                "topics_discussed": [],
+                "notable_quotes": [],
             }
 
         return SummaryResult(
@@ -356,6 +364,8 @@ class GeminiProvider(AIProvider):
             action_items=data.get("action_items", []),
             open_questions=data.get("open_questions", []),
             next_steps=data.get("next_steps", []),
+            topics_discussed=data.get("topics_discussed", []),
+            notable_quotes=data.get("notable_quotes", []),
         )
 
 

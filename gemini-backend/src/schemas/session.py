@@ -163,6 +163,8 @@ class MeetingSummary(BaseModel):
     action_items: list[ActionItem] = Field(default_factory=list)
     open_questions: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
+    topics_discussed: list[dict] = Field(default_factory=list)  # [{topic, summary}]
+    notable_quotes: list[str] = Field(default_factory=list)
     generated_at: int  # unix ms
 
 

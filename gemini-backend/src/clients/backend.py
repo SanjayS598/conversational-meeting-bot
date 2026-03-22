@@ -40,6 +40,17 @@ def _format_summary_markdown(summary: MeetingSummary) -> str:
         lines.extend(["", "## Open Questions", *[f"- {item}" for item in summary.open_questions]])
     if summary.next_steps:
         lines.extend(["", "## Next Steps", *[f"- {item}" for item in summary.next_steps]])
+    if summary.topics_discussed:
+        lines.append("")
+        lines.append("## Topics Discussed")
+        for t in summary.topics_discussed:
+            topic = t.get("topic", "") if isinstance(t, dict) else str(t)
+            detail = t.get("summary", "") if isinstance(t, dict) else ""
+            lines.append(f"### {topic}")
+            if detail:
+                lines.append(detail)
+    if summary.notable_quotes:
+        lines.extend(["", "## Notable Quotes", *[f'> "{q}"' for q in summary.notable_quotes]])
 
     return "\n".join(lines).strip()
 
@@ -77,14 +88,24 @@ class BackendClient:
             },
         )
 
-    async def save_meeting_state(self, state: MeetingState) -> None:
+    async def save_meeting_state(self, state: MeetingState, recent_transcript: str = "") -> None:
         """Push the current MeetingState to the Control Backend events endpoint."""
-        parts: list[str] = []
+        lines: list[str] = []
         if state.current_topic:
-            parts.append(state.current_topic)
+            lines.extend(["## Current Topic", state.current_topic, ""])
         if state.decisions:
-            parts.append("Decisions:\n" + "\n".join(f"- {d}" for d in state.decisions))
-        summary = "\n\n".join(parts)
+            lines.extend(["## Decisions", *[f"- {d}" for d in state.decisions], ""])
+        if state.open_questions:
+            lines.extend(["## Open Questions", *[f"- {q}" for q in state.open_questions], ""])
+        if state.action_items:
+            lines.append("## Action Items")
+            for item in state.action_items:
+                owner = f" ({item.owner})" if item.owner else ""
+                lines.append(f"- {item.description}{owner}")
+            lines.append("")
+        if recent_transcript:
+            lines.extend(["## Recent Discussion", recent_transcript])
+        summary = "\n".join(lines).strip()
 
         await self._emit(
             event_type="notes.update",

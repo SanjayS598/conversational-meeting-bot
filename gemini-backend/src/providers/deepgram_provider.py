@@ -96,6 +96,13 @@ class DeepgramProvider(AIProvider):
                 _DG_URL,
                 additional_headers=[("Authorization", f"Token {self._dg_key}")],
                 open_timeout=10,
+                # Disable the websockets library's automatic WebSocket-level PING frames.
+                # Deepgram does not respond to protocol-level pings, so the library
+                # closes with "keepalive ping timeout" after ~20 s of silence.
+                # Our _keepalive() task sends a Deepgram-level KeepAlive JSON message
+                # every 10 s instead, which keeps both ends alive correctly.
+                ping_interval=None,
+                ping_timeout=None,
             )
         except Exception as exc:
             raise RuntimeError(
@@ -107,6 +114,7 @@ class DeepgramProvider(AIProvider):
             "ws": ws,
             "on_delta": None,
             "reader_task": None,
+            "keepalive_task": None,
         }
         self._sessions[handle] = info
 
@@ -116,6 +124,14 @@ class DeepgramProvider(AIProvider):
             name=f"deepgram-reader-{handle[:8]}",
         )
         info["reader_task"] = task
+
+        # Keepalive task — Deepgram drops the WS after ~60 s of idle pings.
+        # Sending {"type":"KeepAlive"} every 10 s prevents that.
+        ka_task = asyncio.create_task(
+            self._keepalive(handle, info),
+            name=f"deepgram-keepalive-{handle[:8]}",
+        )
+        info["keepalive_task"] = ka_task
 
         logger.info(
             "Deepgram streaming session started handle=%s session_id=%s",
@@ -170,6 +186,15 @@ class DeepgramProvider(AIProvider):
         except Exception:
             pass
 
+        # Cancel keepalive before closing so it doesn't race with CloseStream.
+        ka_task: asyncio.Task | None = info.get("keepalive_task")
+        if ka_task and not ka_task.done():
+            ka_task.cancel()
+            try:
+                await ka_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
         # Wait for the reader to drain the remaining results (up to 5 s)
         task: asyncio.Task | None = info.get("reader_task")
         if task and not task.done():
@@ -201,6 +226,21 @@ class DeepgramProvider(AIProvider):
         return await self._gemini.generate_meeting_summary(payload)
 
     # ── Private ───────────────────────────────────────────────────────────────
+
+    async def _keepalive(self, handle: str, info: dict) -> None:
+        """Send a KeepAlive message every 10 s so Deepgram doesn't time out."""
+        try:
+            while True:
+                await asyncio.sleep(10)
+                ws = info.get("ws")
+                if ws is None:
+                    break
+                try:
+                    await ws.send(json.dumps({"type": "KeepAlive"}))
+                except Exception:
+                    break  # WS is gone; reader will handle the closed state
+        except asyncio.CancelledError:
+            pass
 
     async def _reader(self, handle: str, info: dict) -> None:
         """

@@ -68,7 +68,21 @@ class SessionManager {
         this.broadcastAudioChunk(session.id, int16Array);
       },
       onStatusChange: (status, error) => {
-        this.updateStatus(session.id, status, error);
+        if (status === 'ended') {
+          // Meeting ended naturally in Zoom (host ended it, bot was removed, etc.).
+          // We must stop the Gemini brain session so Deepgram is flushed and the
+          // end-of-meeting summary is generated — stopSession() handles all of that.
+          // joiner.cleanup() has already run inside startEndMonitor, so we skip it here;
+          // stopSession() also calls cleanup() but that is idempotent (browser is null).
+          this.stopSession(session.id).catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[SessionManager] natural-end stopSession failed session=${session.id}: ${msg}`);
+            // Fall back to updating status so the UI at least knows the session ended
+            this.updateStatus(session.id, 'ended', msg);
+          });
+        } else {
+          this.updateStatus(session.id, status, error);
+        }
       },
     });
 

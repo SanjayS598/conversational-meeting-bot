@@ -56,6 +56,8 @@ class SummaryResult:
     action_items: list              # list of dicts with description/owner/due_hint
     open_questions: list
     next_steps: list
+    topics_discussed: list          # list of {topic, summary} dicts
+    notable_quotes: list            # list of verbatim quote strings
 
 
 # Callback type for streaming transcript deltas

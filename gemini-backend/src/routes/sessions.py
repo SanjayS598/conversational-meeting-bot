@@ -132,6 +132,8 @@ def _build_summary_model(session_id: str, result, generated_at: int) -> MeetingS
         action_items=_clean_action_items(result.action_items),
         open_questions=_clean_string_list(result.open_questions),
         next_steps=_clean_string_list(result.next_steps),
+        topics_discussed=result.topics_discussed if isinstance(result.topics_discussed, list) else [],
+        notable_quotes=_clean_string_list(result.notable_quotes),
         generated_at=generated_at,
     )
 

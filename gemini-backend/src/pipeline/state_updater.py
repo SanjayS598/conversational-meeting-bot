@@ -129,7 +129,7 @@ class StateUpdater:
         # ── Push notes + optional response to Control Backend ─────────────────
 
         try:
-            await self._backend_client.save_meeting_state(updated_meeting)
+            await self._backend_client.save_meeting_state(updated_meeting, recent_text)
         except Exception as exc:
             logger.warning(
                 "Failed to push meeting state to backend session_id=%s: %s",

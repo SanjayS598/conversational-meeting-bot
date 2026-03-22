@@ -44,7 +44,7 @@ export default function NewMeetingPage() {
         </p>
       </div>
 
-      <div className="bg-[#0d1424] border border-slate-800 rounded-2xl p-6">
+      <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-6">
         {error && (
           <div className="flex items-center gap-2 text-sm text-red-400 bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2.5 mb-5">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -65,15 +65,15 @@ export default function NewMeetingPage() {
                 value={meetingUrl}
                 onChange={(e) => setMeetingUrl(e.target.value)}
                 placeholder="https://zoom.us/j/123456789"
-                className="w-full bg-[#131c30] border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                className="w-full bg-[#111828] border border-slate-700/80 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#6DD8F0]/60 focus:border-transparent transition"
               />
             </div>
           </div>
 
           {/* What the bot will do */}
-          <div className="bg-indigo-950/30 border border-indigo-900/40 rounded-xl p-4 space-y-2.5">
-            <p className="text-xs font-semibold text-indigo-400 uppercase tracking-wide mb-1">
-              What MeetBot will do
+          <div className="bg-[#6DD8F0]/5 border border-[#6DD8F0]/15 rounded-xl p-4 space-y-2.5">
+            <p className="text-xs font-semibold text-[#6DD8F0] uppercase tracking-wide mb-1">
+              What Clairo will do
             </p>
             {[
               { icon: Video, text: "Join the Zoom call as a silent participant" },
@@ -81,7 +81,7 @@ export default function NewMeetingPage() {
               { icon: Bot, text: "Suggest replies and capture notes automatically" },
             ].map(({ icon: Icon, text }, i) => (
               <div key={i} className="flex items-center gap-2.5 text-sm text-slate-300">
-                <Icon className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                <Icon className="w-4 h-4 text-[#6DD8F0] flex-shrink-0" />
                 {text}
               </div>
             ))}
@@ -90,7 +90,7 @@ export default function NewMeetingPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-[#3B82F6] hover:bg-[#4F94F8] disabled:bg-[#1D4ED8] disabled:cursor-not-allowed text-white font-medium py-3 rounded-lg transition-colors"
           >
             {loading ? (
               <>
@@ -112,7 +112,7 @@ export default function NewMeetingPage() {
 
       <p className="text-xs text-slate-600 text-center mt-4">
         Make sure your voice profile is enrolled in{" "}
-        <a href="/settings/voice" className="text-indigo-500 hover:text-indigo-400">
+        <a href="/settings/voice" className="text-[#6DD8F0] hover:text-[#97E8F7]">
           Settings → My Voice
         </a>{" "}
         before joining.

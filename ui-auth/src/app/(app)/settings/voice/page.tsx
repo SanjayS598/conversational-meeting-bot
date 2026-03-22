@@ -115,11 +115,11 @@ export default function VoiceSettingsPage() {
     <div className="p-8 max-w-2xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Mic className="w-6 h-6 text-indigo-400" />
+          <Mic className="w-6 h-6 text-[#6DD8F0]" />
           My Voice
         </h1>
         <p className="text-slate-400 text-sm mt-1">
-          Enroll your voice so the AI can speak in meetings using your cloned voice.
+          Add your voice so the AI can speak in meetings using your cloned voice.
         </p>
       </div>
 
@@ -134,7 +134,7 @@ export default function VoiceSettingsPage() {
                   i < step
                     ? "bg-emerald-600 text-white"
                     : i === step
-                    ? "bg-indigo-600 text-white"
+                    ? "bg-[#3B82F6] text-white"
                     : "bg-slate-800 text-slate-500"
                 )}
               >
@@ -143,7 +143,7 @@ export default function VoiceSettingsPage() {
               <span
                 className={clsx(
                   "text-xs mt-1.5 font-medium",
-                  i === step ? "text-indigo-400" : "text-slate-500"
+                  i === step ? "text-[#6DD8F0]" : "text-slate-500"
                 )}
               >
                 {label}
@@ -170,17 +170,17 @@ export default function VoiceSettingsPage() {
 
       {/* Step 0: Consent */}
       {step === 0 && (
-        <div className="bg-[#0d1424] border border-slate-800 rounded-2xl p-6 space-y-5">
-          <div className="flex items-start gap-3 p-4 bg-indigo-950/30 border border-indigo-900/40 rounded-xl">
-            <ShieldCheck className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" />
+        <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-6 space-y-5">
+          <div className="flex items-start gap-3 p-4 bg-[#6DD8F0]/5 border border-[#6DD8F0]/15 rounded-xl">
+            <ShieldCheck className="w-5 h-5 text-[#6DD8F0] flex-shrink-0 mt-0.5" />
             <div className="text-sm text-slate-300 space-y-1">
               <p className="font-medium text-white">Voice Cloning Consent</p>
               <p>
-                By proceeding, you consent to creating an AI clone of your voice
+                By continuing, you consent to creating an AI clone of your voice
                 using ElevenLabs. Your voice data will be stored securely and used
-                only to generate spoken responses on your behalf during meetings.
+                only to generate spoken responses on your behalf during meetings. 
+                You can delete your voice profile at any time.
               </p>
-              <p>You can delete your voice profile at any time.</p>
             </div>
           </div>
 
@@ -189,17 +189,17 @@ export default function VoiceSettingsPage() {
               type="checkbox"
               checked={consentChecked}
               onChange={(e) => setConsentChecked(e.target.checked)}
-              className="mt-0.5 accent-indigo-500 w-4 h-4"
+              className="mt-0.5 accent-[#6DD8F0] w-4 h-4"
             />
             <span className="text-sm text-slate-300">
-              I consent to creating a voice clone for use in MeetBot meetings.
+              I consent to creating a voice clone for use in Clairo meetings.
             </span>
           </label>
 
           <button
             onClick={handleEnroll}
             disabled={!consentChecked || enrolling}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-medium px-5 py-2.5 rounded-lg transition-colors text-sm"
+            className="flex items-center gap-2 bg-[#3B82F6] hover:bg-[#4F94F8] disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-medium px-5 py-2.5 rounded-lg transition-colors text-sm"
           >
             {enrolling ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -213,7 +213,7 @@ export default function VoiceSettingsPage() {
 
       {/* Step 1: Upload samples */}
       {step === 1 && (
-        <div className="bg-[#0d1424] border border-slate-800 rounded-2xl p-6 space-y-5">
+        <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-6 space-y-5">
           <div>
             <h2 className="text-base font-semibold text-white mb-1">
               Upload Voice Samples
@@ -227,7 +227,7 @@ export default function VoiceSettingsPage() {
           {/* Upload area */}
           <div
             onClick={() => fileRef.current?.click()}
-            className="border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded-xl p-8 flex flex-col items-center gap-3 cursor-pointer transition-colors"
+            className="border-2 border-dashed border-slate-700 hover:border-[#6DD8F0]/50 rounded-xl p-8 flex flex-col items-center gap-3 cursor-pointer transition-colors"
           >
             <Upload className="w-8 h-8 text-slate-500" />
             <p className="text-sm text-slate-400">
@@ -245,7 +245,7 @@ export default function VoiceSettingsPage() {
           </div>
 
           {uploading && (
-            <div className="flex items-center gap-2 text-sm text-indigo-400">
+            <div className="flex items-center gap-2 text-sm text-[#6DD8F0]">
               <Loader2 className="w-4 h-4 animate-spin" />
               Uploading samples…
             </div>
@@ -278,7 +278,7 @@ export default function VoiceSettingsPage() {
 
       {/* Step 2: Done / profile info */}
       {step === 2 && profile && (
-        <div className="bg-[#0d1424] border border-slate-800 rounded-2xl p-6 space-y-4">
+        <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-6 space-y-4">
           <div className="flex items-center gap-3 p-4 bg-emerald-950/30 border border-emerald-900/40 rounded-xl">
             <CheckCircle2 className="w-6 h-6 text-emerald-400 flex-shrink-0" />
             <div>

@@ -5,8 +5,9 @@ export const dynamic = "force-dynamic";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { Bot, Mail, Lock, AlertCircle } from "lucide-react";
+import { Mail, Lock, AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -44,26 +45,24 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0a0f1e] px-4">
+    <div className="min-h-screen flex items-center justify-center bg-[#080e1c] px-4">
       {/* Background glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-indigo-600/10 rounded-full blur-3xl" />
+        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-[#9B7FD4]/8 rounded-full blur-3xl" />
       </div>
 
       <div className="relative w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center mb-4 shadow-lg shadow-indigo-600/30">
-            <Bot className="w-8 h-8 text-white" />
+          <div className="mb-4">
+            <Image src="/ClairoLogo.png" alt="Clairo" width={250} height={250} className="rounded-2xl" />
           </div>
-          <h1 className="text-2xl font-bold text-white">MeetBot</h1>
-          <p className="text-slate-400 text-sm mt-1">AI-powered meeting assistant</p>
         </div>
 
         {/* Card */}
-        <div className="bg-[#0d1424] border border-slate-800 rounded-2xl p-6 shadow-xl">
+        <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-6 shadow-xl">
           <h2 className="text-lg font-semibold text-white mb-5">
-            {isSignUp ? "Create your account" : "Welcome back"}
+            {isSignUp ? "Let's get you onboard!" : "Welcome back!"}
           </h2>
 
           {error && (
@@ -74,7 +73,7 @@ export default function LoginPage() {
           )}
 
           {info && (
-            <div className="text-sm text-indigo-300 bg-indigo-900/20 border border-indigo-800/40 rounded-lg px-3 py-2.5 mb-4">
+            <div className="text-sm text-[#6DD8F0] bg-[#6DD8F0]/10 border border-[#6DD8F0]/20 rounded-lg px-3 py-2.5 mb-4">
               {info}
             </div>
           )}
@@ -92,7 +91,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="w-full bg-[#131c30] border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                  className="w-full bg-[#111828] border border-slate-700/80 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#6DD8F0]/60 focus:border-transparent transition"
                 />
               </div>
             </div>
@@ -110,7 +109,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-[#131c30] border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                  className="w-full bg-[#111828] border border-slate-700/80 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#6DD8F0]/60 focus:border-transparent transition"
                 />
               </div>
             </div>
@@ -118,7 +117,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg transition-colors text-sm mt-1"
+              className="w-full bg-[#3B82F6] hover:bg-[#8B5CF6] disabled:bg-[#3B2568] disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg transition-colors text-sm mt-1"
             >
               {loading ? "Please wait…" : isSignUp ? "Create Account" : "Sign In"}
             </button>
@@ -128,7 +127,7 @@ export default function LoginPage() {
             {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
             <button
               onClick={() => { setIsSignUp(!isSignUp); setError(null); setInfo(null); }}
-              className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+              className="text-[#6DD8F0] hover:text-[#97E8F7] font-medium transition-colors"
             >
               {isSignUp ? "Sign in" : "Sign up"}
             </button>

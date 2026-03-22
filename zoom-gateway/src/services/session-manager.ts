@@ -57,15 +57,15 @@ class SessionManager {
       bot_display_name: input.bot_display_name ?? config.botDisplayName,
     };
 
+    let _audioChunkCount = 0;
     const joiner = new ZoomJoiner(session.id, {
       onAudioChunk: (int16Array) => {
+        _audioChunkCount++;
+        if (_audioChunkCount === 1 || _audioChunkCount % 500 === 0) {
+          console.log(`[SessionManager] audio chunks received session=${session.id} count=${_audioChunkCount}`);
+        }
+        geminiBrainClient.sendAudio(session.id, int16Array);
         this.broadcastAudioChunk(session.id, int16Array);
-      },
-      onCaption: (caption) => {
-        void geminiBrainClient.sendCaption(session.id, caption).catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn(`[SessionManager] Caption send failed for ${session.id}: ${msg}`);
-        });
       },
       onStatusChange: (status, error) => {
         this.updateStatus(session.id, status, error);

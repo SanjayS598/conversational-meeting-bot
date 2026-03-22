@@ -37,7 +37,7 @@ export async function POST(req: Request) {
 
     case "transcript.segment": {
       const { session_id, speaker, text, start_ms, end_ms, confidence } = payload;
-      await supabase.from("transcript_segments").insert({
+      const { error: tsErr } = await supabase.from("transcript_segments").insert({
         session_id,
         speaker,
         text,
@@ -45,6 +45,7 @@ export async function POST(req: Request) {
         end_ms,
         confidence,
       });
+      if (tsErr) console.error("[events] transcript.segment insert failed:", tsErr.message, "session_id:", session_id);
       break;
     }
 

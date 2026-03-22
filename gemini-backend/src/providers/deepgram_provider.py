@@ -34,9 +34,9 @@ logger = logging.getLogger(__name__)
 
 # Deepgram streaming endpoint configuration:
 #   model=nova-2       — state-of-the-art accuracy / speed balance
-#   endpointing=300    — fire speech_final after 300 ms of silence (responsive yet not fragmented)
+#   endpointing=120    — finalize smaller chunks quickly for lower transcript latency
 #   smart_format=true  — adds punctuation & capitalisation automatically
-#   interim_results=false — only emit finalized utterances (keeps the pipeline simple)
+#   interim_results=true — let Deepgram emit frequent is_final chunks during speech
 #   filler_words=false — strip "um", "uh", etc. from results
 _DG_URL = (
     "wss://api.deepgram.com/v1/listen"
@@ -45,8 +45,8 @@ _DG_URL = (
     "&encoding=linear16"
     "&sample_rate=16000"
     "&channels=1"
-    "&interim_results=false"
-    "&endpointing=300"
+    "&interim_results=true"
+    "&endpointing=120"
     "&smart_format=true"
     "&filler_words=false"
 )
@@ -56,10 +56,9 @@ class DeepgramProvider(AIProvider):
     """
     Real-time streaming STT via Deepgram Nova-2.
 
-    Each speech_final result from Deepgram is emitted immediately as a
-    is_final=True TranscriptDelta.  This bypasses all local buffering so the
-    transcript reaches the database within ~400–800 ms of the speaker pausing,
-    vs. 10+ seconds with the Whisper batch approach.
+    Each finalized chunk from Deepgram is emitted immediately as a
+    is_final=True TranscriptDelta. This keeps transcript latency low without
+    depending on Zoom captions or large local audio buffers.
 
     Gemini 2.5 Flash is still used for meeting state updates and end-of-meeting
     summary generation (delegated to an embedded GeminiProvider).
@@ -206,7 +205,7 @@ class DeepgramProvider(AIProvider):
     async def _reader(self, handle: str, info: dict) -> None:
         """
         Background task: reads Deepgram JSON responses and calls on_delta
-        whenever a speech_final utterance arrives.
+        whenever Deepgram finalizes a chunk.
         """
         import websockets.exceptions as ws_exc  # lazy import
 
@@ -214,6 +213,7 @@ class DeepgramProvider(AIProvider):
         session_id = info["session_id"]
 
         try:
+            msg_count = 0
             async for raw in ws:
                 if not isinstance(raw, (str, bytes)):
                     continue
@@ -222,11 +222,29 @@ class DeepgramProvider(AIProvider):
                 except (json.JSONDecodeError, ValueError):
                     continue
 
-                if msg.get("type") != "Results":
+                msg_count += 1
+                msg_type = msg.get("type", "?")
+                if msg_count <= 5 or msg_count % 50 == 0:
+                    # Log first few + periodic messages to confirm Deepgram is responding
+                    logger.info(
+                        "Deepgram msg #%d type=%s is_final=%s speech_final=%s handle=%s",
+                        msg_count, msg_type,
+                        msg.get("is_final"), msg.get("speech_final"),
+                        handle[:8],
+                    )
+
+                if msg_type != "Results":
                     continue
 
-                # Only process finalized utterances (speech pause detected)
-                if not msg.get("speech_final"):
+                # Log ANY non-empty interim result so we can confirm speech detection
+                _interim_text = ((msg.get("channel") or {}).get("alternatives") or [{}])[0].get("transcript", "").strip()
+                if _interim_text and not msg.get("is_final") and not msg.get("speech_final"):
+                    logger.info(
+                        "Deepgram interim text=%r handle=%s",
+                        _interim_text[:80], handle[:8],
+                    )
+
+                if not (msg.get("is_final") or msg.get("speech_final")):
                     continue
 
                 alternatives = (msg.get("channel") or {}).get("alternatives") or []
@@ -235,6 +253,13 @@ class DeepgramProvider(AIProvider):
 
                 best = alternatives[0]
                 text = (best.get("transcript") or "").strip()
+                logger.info(
+                    "Deepgram is_final text=%r confidence=%.2f handle=%s on_delta_set=%s",
+                    text[:80] if text else "(empty)",
+                    best.get("confidence", 0.0),
+                    handle[:8],
+                    info.get("on_delta") is not None,
+                )
                 if not text:
                     continue
 

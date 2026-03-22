@@ -81,39 +81,104 @@ const PRELOAD_SCRIPT = /* js */ `
   /* ── 2. Capture: incoming meeting audio → Node.js ───────────────────────── */
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
+    console.log('[ZG] AudioContext available:', !!Ctx, 'RTCPeerConnection available:', !!window.RTCPeerConnection);
     if (Ctx && window.RTCPeerConnection) {
       const captureCtx = new Ctx({ sampleRate: 16000 });
+      console.log('[ZG] captureCtx created state:', captureCtx.state, 'sampleRate:', captureCtx.sampleRate, 'audioWorklet:', !!captureCtx.audioWorklet);
 
       // AUDIO_WORKLET_CODE is JSON-embedded at build time to avoid nested backtick
       // syntax inside this template literal. The blob URL approach lets us load the
       // processor without needing a separate file served from a URL.
+      const workletCode = ${JSON.stringify(AUDIO_WORKLET_CODE)};
       const blobUrl = URL.createObjectURL(
-        new Blob([${JSON.stringify(AUDIO_WORKLET_CODE)}], { type: 'application/javascript' })
+        new Blob([workletCode], { type: 'application/javascript' })
       );
+      console.log('[ZG] AudioWorklet blob URL created:', blobUrl.slice(0, 30) + '...');
+
+      // ONE shared capture node — all audio tracks are mixed by the AudioContext
+      // before reaching the worklet. Creating a new node per-track was sending 3x
+      // the audio data to Deepgram as incoherent interleaved chunks.
+      let _sharedCaptureNode = null;
+      let _captureNodePromise = null; // guards against concurrent track-event race
+      let _chunksEmitted = 0;
+      let _activePCCount = 0;
+      window.__captureCtxState = captureCtx.state;
+
+      function _ensureCaptureNode() {
+        if (_sharedCaptureNode) return Promise.resolve(_sharedCaptureNode);
+        if (_captureNodePromise) return _captureNodePromise;  // reuse in-flight promise
+        _captureNodePromise = (async () => {
+          // ── Try AudioWorklet first (preferred: no UI thread jank) ──────────
+          if (captureCtx.audioWorklet) {
+            try {
+              await captureCtx.audioWorklet.addModule(blobUrl);
+              console.log('[ZG] AudioWorklet module loaded OK');
+              const wNode = new AudioWorkletNode(captureCtx, 'zoom-capture');
+              wNode.port.onmessage = (e) => {
+                const i16 = new Int16Array(e.data);
+                _chunksEmitted++;
+                if (_chunksEmitted === 1 || _chunksEmitted % 100 === 0) {
+                  console.log('[ZG] AudioWorklet chunk #' + _chunksEmitted + ' samples=' + i16.length);
+                }
+                if (window.__onAudioChunk) window.__onAudioChunk(Array.from(i16));
+              };
+              _sharedCaptureNode = wNode;
+              console.log('[ZG] Using AudioWorklet for capture (shared node)');
+              return _sharedCaptureNode;
+            } catch (awe) {
+              console.warn('[ZG] AudioWorklet failed, falling back to ScriptProcessorNode:', String(awe));
+            }
+          }
+          // ── Fallback: ScriptProcessorNode (deprecated but reliable) ──────
+          const spNode = captureCtx.createScriptProcessor(1024, 1, 1);
+          spNode.onaudioprocess = (e) => {
+            const f32 = e.inputBuffer.getChannelData(0);
+            const i16 = new Int16Array(f32.length);
+            for (let k = 0; k < f32.length; k++) {
+              i16[k] = Math.max(-32768, Math.min(32767, f32[k] * 32768));
+            }
+            _chunksEmitted++;
+            if (_chunksEmitted === 1 || _chunksEmitted % 100 === 0) {
+              console.log('[ZG] ScriptProcessor chunk #' + _chunksEmitted + ' samples=' + f32.length);
+            }
+            if (window.__onAudioChunk) window.__onAudioChunk(Array.from(i16));
+          };
+          // ScriptProcessorNode must be connected to destination to fire
+          spNode.connect(captureCtx.destination);
+          _sharedCaptureNode = spNode;
+          console.log('[ZG] Using ScriptProcessorNode for capture (shared node)');
+          return _sharedCaptureNode;
+        })();
+        return _captureNodePromise;
+      }
 
       const OrigPC = window.RTCPeerConnection;
       window.RTCPeerConnection = class extends OrigPC {
         constructor(...args) {
           super(...args);
+          _activePCCount++;
+          window.__activePCCount = _activePCCount;
+          console.log('[ZG] RTCPeerConnection constructed total=' + _activePCCount);
           this.addEventListener('track', async (ev) => {
+            console.log('[ZG] track event kind=' + ev.track.kind + ' readyState=' + ev.track.readyState);
             if (ev.track.kind !== 'audio') return;
             try {
               await captureCtx.resume();
-              await captureCtx.audioWorklet.addModule(blobUrl);
+              window.__captureCtxState = captureCtx.state;
+              console.log('[ZG] captureCtx resumed state:', captureCtx.state);
+              const captureNode = await _ensureCaptureNode();
               const src = captureCtx.createMediaStreamSource(new MediaStream([ev.track]));
-              const node = new AudioWorkletNode(captureCtx, 'zoom-capture');
-              node.port.onmessage = (e) => {
-                const i16 = new Int16Array(e.data);
-                if (window.__onAudioChunk) window.__onAudioChunk(Array.from(i16));
-              };
-              src.connect(node);
-              // Do not connect to destination — we don't want loopback audio
+              src.connect(captureNode);
+              console.log('[ZG] audio track mixed into shared capture node id=' + ev.track.id);
             } catch (err) {
               console.error('[ZG] audio capture error', err);
             }
           });
         }
       };
+      console.log('[ZG] RTCPeerConnection override installed');
+    } else {
+      console.error('[ZG] AudioContext or RTCPeerConnection not available — audio capture disabled');
     }
   } catch (err) {
     console.error('[ZG] RTCPeerConnection hook error', err);
@@ -278,12 +343,18 @@ const WAITING_ROOM_TEXT_PATTERNS = [
  */
 const DISMISS_DIALOG_SELECTORS = [
   'button[aria-label="Close"]',
+  'button[aria-label*="close" i]',
   'button.zm-btn--close',
   // "Cannot detect your camera" error — click OK to dismiss
   '.zm-modal-footer button.zm-btn--primary',
   '.zm-modal button.zm-btn',
   // Floating-reactions / feature announcement
   '.footer-chat__tooltip-close',
+  '[class*="tooltip-close"]',
+  '[class*="announcement"] button',
+  '[class*="popover"] button',
+  '[class*="dialog"] button',
+  '[class*="modal"] button',
 ];
 
 // ---------------------------------------------------------------------------
@@ -346,6 +417,18 @@ export class ZoomJoiner {
 
     this.page = await this.browser.newPage();
 
+    // Forward browser console → Node.js so [ZG] audio errors are visible in Docker logs
+    this.page.on('console', (msg) => {
+      const text = msg.text();
+      const type = msg.type();
+      if (type === 'error' || text.includes('[ZG]')) {
+        this.log(`[Browser:${type}] ${text}`);
+      }
+    });
+    this.page.on('pageerror', (err) => {
+      this.log(`[Browser:pageerror] ${err instanceof Error ? err.message : String(err)}`, 'error');
+    });
+
     // Inject stealth + audio bridge before any page JS runs
     await this.page.evaluateOnNewDocument(PRELOAD_SCRIPT);
 
@@ -388,11 +471,6 @@ export class ZoomJoiner {
 
     this.callbacks.onStatusChange('joined');
     this.startEndMonitor();
-    // Start caption scraping immediately after joining — fire-and-forget.
-    // This replaces audio-based STT: Zoom's own captions are instant.
-    this.startCaptionScraper().catch((err) =>
-      this.log(`captionScraper startup error: ${err}`, 'warn'),
-    );
   }
 
   async injectAudio(int16Array: number[]): Promise<void> {
@@ -581,6 +659,21 @@ export class ZoomJoiner {
     await this.runPostJoinStateMachine(passcode);
 
     this.log('Step: done — bot is in the meeting');
+
+    // Post-join diagnostic: verify audio capture is set up correctly
+    try {
+      const diagnostic = await this.page!.evaluate(() => {
+        const w = window as unknown as Record<string, unknown>;
+        const audioCtxState = (w.__captureCtxState as string) ?? 'unknown';
+        const onAudioChunkDefined = typeof w.__onAudioChunk === 'function';
+        // Check if any RTCPeerConnections are open
+        const pcs = (w.__activePCCount as number) ?? 'unknown';
+        return { audioCtxState, onAudioChunkDefined, activePCCount: pcs };
+      });
+      this.log(`[AudioDiag] onAudioChunkDefined=${diagnostic.onAudioChunkDefined} audioCtxState=${diagnostic.audioCtxState} activePCCount=${diagnostic.activePCCount}`);
+    } catch (diagErr) {
+      this.log(`[AudioDiag] diagnostic failed: ${diagErr}`, 'error');
+    }
   }
 
   // ── Generic frame-aware helpers ───────────────────────────────────────────
@@ -955,22 +1048,69 @@ export class ZoomJoiner {
    */
   private async dismissModals(): Promise<void> {
     if (!this.page || this.page.isClosed()) return;
-    for (const frame of this.page.frames()) {
-      if (frame.isDetached()) continue;
-      for (const sel of DISMISS_DIALOG_SELECTORS) {
+    for (let pass = 0; pass < 3; pass++) {
+      let dismissedSomething = false;
+
+      for (const frame of this.page.frames()) {
+        if (frame.isDetached()) continue;
+        for (const sel of DISMISS_DIALOG_SELECTORS) {
+          try {
+            const all = await frame.$$(sel);
+            for (const el of all) {
+              const meta = await el.evaluate((e) => {
+                const rect = e.getBoundingClientRect();
+                const text = (e as HTMLElement).innerText || e.textContent || '';
+                return {
+                  visible: rect.width > 0 && rect.height > 0,
+                  text: text.trim(),
+                  aria: e.getAttribute('aria-label') || '',
+                };
+              }).catch(() => ({ visible: false, text: '', aria: '' }));
+              if (!meta.visible) continue;
+
+              const looksDismissive =
+                /close|dismiss|ok|got it|not now|cancel|x/i.test(meta.text) ||
+                /close|dismiss/i.test(meta.aria) ||
+                sel.includes('close');
+
+              if (!looksDismissive) continue;
+
+              await el.click().catch(() => {});
+              dismissedSomething = true;
+              this.log(`Dismissed modal: selector="${sel}" text="${meta.text}" aria="${meta.aria}"`);
+              await this.sleep(250);
+            }
+          } catch { /* detached or not clickable */ }
+        }
+
         try {
-          const el = await frame.$(sel);
-          if (!el) continue;
-          const visible: boolean = await el.evaluate((e) => {
-            const rect = e.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-          }).catch(() => false);
-          if (visible) {
-            await el.click();
-            this.log(`Dismissed modal: selector="${sel}"`);
+          const clickedByText = await frame.evaluate(() => {
+            const candidates = Array.from(
+              document.querySelectorAll<HTMLElement>('button, [role="button"], a, span')
+            );
+            const target = candidates.find((el) => {
+              const rect = el.getBoundingClientRect();
+              const text = (el.innerText || el.textContent || '').trim();
+              return rect.width > 0 && rect.height > 0 && /^(ok|got it|not now|close)$/i.test(text);
+            });
+            if (!target) return false;
+            target.click();
+            return true;
+          });
+          if (clickedByText) {
+            dismissedSomething = true;
+            this.log('Dismissed modal via text-based button search');
+            await this.sleep(250);
           }
-        } catch { /* detached or not clickable */ }
+        } catch { /* detached */ }
+
       }
+
+      try {
+        await this.page.keyboard.press('Escape').catch(() => {});
+      } catch { /* page closed */ }
+
+      if (!dismissedSomething) break;
     }
   }
 
@@ -1046,12 +1186,12 @@ export class ZoomJoiner {
     // ── Step 2: Expose Node.js caption receiver to the browser ────────────
     await this.page.exposeFunction(
       '__onCaption',
-      (speaker: string, text: string) => {
+      (speaker: string, text: string, elapsedMs?: number) => {
         if (this.callbacks.onCaption) {
           this.callbacks.onCaption({
             speaker,
             text,
-            elapsed_ms: Date.now() - joinedAt,
+            elapsed_ms: typeof elapsedMs === 'number' ? elapsedMs : Date.now() - joinedAt,
           });
         }
       },
@@ -1059,158 +1199,147 @@ export class ZoomJoiner {
 
     // ── Step 3: Build participant map + install MutationObserver in page ──
     try {
-      await this.page.evaluate(() => {
-        // ── Participant name map ─────────────────────────────────────────
-        // Maps avatar key (image url or initials text) → display name.
-        const participantMap: Record<string, string> = {};
+      await this.page.evaluate((joinedAtMs: number) => {
+        const windowWithState = window as unknown as {
+          __participantMapObserver?: MutationObserver;
+          __captionRootObserver?: MutationObserver;
+          __captionContainerObservers?: MutationObserver[];
+          __zgParticipantMap?: Record<string, string>;
+          __onCaption?: (speaker: string, text: string, elapsedMs: number) => void;
+        };
 
-        function refreshParticipantMap() {
-          // Try multiple selectors for the participants panel
-          const nameEls = document.querySelectorAll(
-            '.participants-item__display-name, [class*="participants-item__name"], [class*="participants__name"]'
-          );
-          nameEls.forEach((nameEl) => {
-            const item = nameEl.closest(
-              '.participants-item, [class*="participants-item"]'
-            );
-            if (!item) return;
-            const name = (nameEl as HTMLElement).innerText?.trim();
-            if (!name) return;
-            // Image avatar
-            const img = item.querySelector('img');
-            if (img && img.src) participantMap[img.src] = name;
-            // Initials avatar
-            const initials = item.querySelector(
-              '[class*="avatar__initials"], [class*="initials"]'
-            );
-            if (initials) {
-              const key = (initials as HTMLElement).innerText?.trim();
-              if (key) participantMap[key] = name;
-            }
-          });
+        if (windowWithState.__captionRootObserver) {
+          return;
         }
 
-        // Open participants panel and observe changes
-        (function openAndObserveParticipants() {
-          const btn = document.querySelector<HTMLElement>(
-            'button[aria-label*="participants" i], [class*="participants-btn"]'
+        windowWithState.__zgParticipantMap = windowWithState.__zgParticipantMap || {};
+        windowWithState.__captionContainerObservers = windowWithState.__captionContainerObservers || [];
+
+        const participantMap = windowWithState.__zgParticipantMap;
+
+        function mapParticipantItem(item: Element) {
+          const nameEl = item.querySelector(
+            '.participants-item__display-name, [class*="participants-item__display-name"], [class*="participants-item__name"], [class*="participants__name"]'
           );
-          if (btn) btn.click();
+          const name = (nameEl as HTMLElement | null)?.innerText?.trim();
+          if (!name) return;
+
+          const img = item.querySelector('img');
+          if (img?.src) participantMap[img.src] = name;
+
+          const initialsEl = item.querySelector(
+            '[class*="avatar__initials"], [class*="avatar-initials"], [class*="initials"]'
+          );
+          const initials = (initialsEl as HTMLElement | null)?.innerText?.trim();
+          if (initials) participantMap[initials] = name;
+        }
+
+        function refreshParticipantMap() {
+          const items = document.querySelectorAll(
+            '.participants-item, [class*="participants-item"], [class*="participants-li"]'
+          );
+          items.forEach(mapParticipantItem);
+        }
+
+        function startParticipantObserver() {
+          const participantsButton = Array.from(
+            document.querySelectorAll<HTMLElement>('button, [role="button"]')
+          ).find((el) => {
+            const label = (el.getAttribute('aria-label') || el.innerText || el.textContent || '').trim();
+            return /open the participants list|participants/i.test(label);
+          });
+
+          participantsButton?.click();
+          participantsButton?.click();
+
           refreshParticipantMap();
 
           const panel = document.querySelector(
-            '[class*="participants"], .participants-list'
+            '.participants-ul, .participants-list, [class*="participants-list"], [class*="participants-ul"], [class*="participants-panel"]'
           );
-          if (panel) {
-            new MutationObserver(refreshParticipantMap).observe(panel, {
-              childList: true,
-              subtree: true,
-              characterData: true,
-            });
-          } else {
-            // Retry in 2 s if panel not yet rendered
-            setTimeout(openAndObserveParticipants, 2000);
-          }
-        })();
-
-        // ── Caption deduplication per speaker ────────────────────────────
-        // Tracks the last emitted text for each speaker key.
-        const lastEmitted: Record<string, string> = {};
-
-        function findNewText(oldText: string, newText: string): string {
-          if (!oldText) return newText.trim();
-          // Simple append: "Hello" → "Hello world" → emit " world"
-          if (newText.startsWith(oldText)) {
-            return newText.slice(oldText.length).trim();
-          }
-          // Sliding window: find longest suffix of oldText that is a prefix of newText
-          for (let i = Math.min(oldText.length, newText.length); i > 0; i--) {
-            if (newText.startsWith(oldText.slice(-i))) {
-              const novel = newText.slice(i).trim();
-              return novel;
-            }
-          }
-          // No overlap: completely new utterance
-          return newText.trim();
-        }
-
-        function getSpeakerName(captionContainer: Element): string {
-          // Try image avatar
-          const img = captionContainer.querySelector('img');
-          if (img && img.src && participantMap[img.src]) {
-            return participantMap[img.src];
-          }
-          // Try initials avatar
-          const initials = captionContainer.querySelector(
-            '[class*="avatar__initials"], [class*="initials"]'
-          );
-          if (initials) {
-            const key = (initials as HTMLElement).innerText?.trim();
-            if (key && participantMap[key]) return participantMap[key];
-            if (key) return key; // fallback to initials
-          }
-          // Try aria-label on the avatar
-          const avatar = captionContainer.querySelector('[aria-label]');
-          if (avatar) {
-            const label = avatar.getAttribute('aria-label')?.trim();
-            if (label) return label;
-          }
-          return 'Participant';
-        }
-
-        // ── MutationObserver for caption containers ───────────────────────
-        function observeCaptions() {
-          const containers = document.querySelectorAll(
-            '[class*="live-transcription"], [class*="caption"]'
-          );
-
-          if (containers.length === 0) {
-            // Captions not yet rendered — retry in 1 s
-            setTimeout(observeCaptions, 1000);
+          if (!panel) {
+            setTimeout(startParticipantObserver, 1500);
             return;
           }
 
-          containers.forEach((container) => {
-            const observer = new MutationObserver(() => {
-              // Each caption item span holds the current visible text
-              const spans = container.querySelectorAll(
-                '[class*="subtitle__item"], [class*="caption-line"], [class*="transcription-subtitle"]'
-              );
-              const speaker = getSpeakerName(container);
-              const speakerKey = speaker + '|' + (container as HTMLElement).dataset._zgKey;
-
-              spans.forEach((span) => {
-                const currentText = (span as HTMLElement).innerText?.trim();
-                if (!currentText) return;
-                const novel = findNewText(lastEmitted[speakerKey] ?? '', currentText);
-                if (novel) {
-                  lastEmitted[speakerKey] = currentText;
-                  const fn = (window as unknown as Record<string, unknown>).__onCaption as ((s: string, t: string) => void)|undefined;
-                  if (fn) fn(speaker, novel);
-                }
-              });
+          if (!windowWithState.__participantMapObserver) {
+            windowWithState.__participantMapObserver = new MutationObserver(() => {
+              refreshParticipantMap();
             });
-
-            // Tag container so we can build a stable per-speaker key
-            (container as HTMLElement).dataset._zgKey = Math.random().toString(36).slice(2);
-            observer.observe(container, {
+            windowWithState.__participantMapObserver.observe(panel, {
               childList: true,
               subtree: true,
               characterData: true,
             });
-          });
-
-          // Also observe the parent for new caption containers appearing mid-meeting
-          const parent = containers[0].parentElement;
-          if (parent) {
-            new MutationObserver(() => observeCaptions()).observe(parent, {
-              childList: true,
-            });
           }
         }
 
-        observeCaptions();
-      });
+        function resolveSpeaker(container: Element): string {
+          const img = container.querySelector('img');
+          if (img?.src && participantMap[img.src]) return participantMap[img.src];
+
+          const initialsEl = container.querySelector(
+            '[class*="avatar__initials"], [class*="avatar-initials"], [class*="initials"]'
+          );
+          const initials = (initialsEl as HTMLElement | null)?.innerText?.trim();
+          if (initials && participantMap[initials]) return participantMap[initials];
+          if (initials) return initials;
+
+          const label = container.querySelector('[aria-label]')?.getAttribute('aria-label')?.trim();
+          if (label) return label;
+          return 'Participant';
+        }
+
+        function emitContainerSnapshot(container: Element) {
+          const captionSpans = container.querySelectorAll(
+            '.live-transcription-subtitle__item, [class*="live-transcription-subtitle__item"], [class*="subtitle__item"], [class*="caption-line"], [class*="transcription-subtitle"]'
+          );
+          const speaker = resolveSpeaker(container);
+          const elapsedMs = Date.now() - joinedAtMs;
+          captionSpans.forEach((span) => {
+            const currentText = (span as HTMLElement).innerText.trim();
+            if (!currentText) return;
+            windowWithState.__onCaption?.(speaker, currentText, elapsedMs);
+          });
+        }
+
+        function observeCaptionContainer(container: Element) {
+          const element = container as HTMLElement;
+          if (element.dataset.zgCaptionObserved === '1') return;
+          element.dataset.zgCaptionObserved = '1';
+
+          const observer = new MutationObserver(() => {
+            emitContainerSnapshot(container);
+          });
+
+          observer.observe(container, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+          });
+          windowWithState.__captionContainerObservers?.push(observer);
+          emitContainerSnapshot(container);
+        }
+
+        function attachCaptionObservers() {
+          const containers = document.querySelectorAll(
+            '[class*="live-transcription"], [class*="caption"]'
+          );
+          containers.forEach(observeCaptionContainer);
+        }
+
+        startParticipantObserver();
+        attachCaptionObservers();
+
+        windowWithState.__captionRootObserver = new MutationObserver(() => {
+          refreshParticipantMap();
+          attachCaptionObservers();
+        });
+        windowWithState.__captionRootObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+        });
+      }, joinedAt);
     } catch (err) {
       this.log(`captionScraper: evaluate error: ${err}`, 'warn');
     }
@@ -1227,11 +1356,14 @@ export class ZoomJoiner {
 
     // Wait a moment for toolbar to settle after joining
     await this.sleep(2000);
+    await this.dismissModals();
+    await this.saveScreenshot('before-enable-captions');
 
     const captionButtonSelectors = [
       'button[aria-label*="transcript" i]',
       'button[aria-label*="closed caption" i]',
       'button[aria-label*="live transcript" i]',
+      'button[aria-label*="captions" i]',
       '[class*="caption-btn"]',
       '[class*="live-transcript"]',
     ];
@@ -1241,61 +1373,35 @@ export class ZoomJoiner {
       'button[aria-label*="More" i]',
       '[class*="more-button"]',
       'button[aria-label*="see more options" i]',
+      'button[aria-label*="more" i]',
     ];
 
     // First try directly
     let clicked = false;
-    for (const sel of captionButtonSelectors) {
-      try {
-        const el = await this.page.$(sel);
-        if (!el) continue;
-        const visible = await el.evaluate((e) => {
-          const r = e.getBoundingClientRect();
-          return r.width > 0 && r.height > 0;
-        });
-        if (visible) {
-          await el.click();
-          this.log(`enableLiveCaptions: clicked "${sel}"`);
-          clicked = true;
-          break;
-        }
-      } catch { /* try next */ }
-    }
-
-    if (!clicked) {
-      // Try opening "More" overflow first
-      for (const moreSel of moreSelectors) {
+    for (const frame of this.page.frames()) {
+      if (frame.isDetached()) continue;
+      for (const sel of captionButtonSelectors) {
         try {
-          const moreEl = await this.page.$(moreSel);
-          if (!moreEl) continue;
-          const visible = await moreEl.evaluate((e) => {
+          const el = await frame.$(sel);
+          if (!el) continue;
+          const visible = await el.evaluate((e) => {
             const r = e.getBoundingClientRect();
             return r.width > 0 && r.height > 0;
           });
           if (visible) {
-            await moreEl.click();
-            await this.sleep(800);
-            // Now try caption buttons inside the opened menu
-            for (const sel of captionButtonSelectors) {
-              try {
-                const el = await this.page.$(sel);
-                if (!el) continue;
-                const v = await el.evaluate((e) => {
-                  const r = e.getBoundingClientRect();
-                  return r.width > 0 && r.height > 0;
-                });
-                if (v) {
-                  await el.click();
-                  this.log(`enableLiveCaptions: clicked via More menu "${sel}"`);
-                  clicked = true;
-                  break;
-                }
-              } catch { /* try next */ }
-            }
+            await el.click();
+            this.log(`enableLiveCaptions: clicked "${sel}" in frame="${frame.url()}"`);
+            clicked = true;
             break;
           }
         } catch { /* try next */ }
       }
+      if (clicked) break;
+    }
+
+    if (!clicked) {
+      // Try opening "More" overflow first.
+      clicked = await this.openMoreAndPickCaptionItem(moreSelectors, captionButtonSelectors);
     }
 
     if (!clicked) {
@@ -1315,21 +1421,165 @@ export class ZoomJoiner {
     }
 
     if (!clicked) {
+      clicked = await this.safeClickByVisibleText([
+        /captions?/i,
+        /closed\s+caption/i,
+        /live\s+transcript/i,
+        /show\s+subtitles/i,
+      ]);
+      if (clicked) this.log('enableLiveCaptions: clicked by visible text');
+    }
+
+    if (!clicked) {
+      const visibleButtons = await this.collectVisibleButtonLabels();
+      this.log(`enableLiveCaptions: could not find caption button; visible controls=${JSON.stringify(visibleButtons.slice(0, 20))}`, 'warn');
       this.log('enableLiveCaptions: could not find caption button — captions may already be on or unavailable', 'warn');
     }
 
     // After clicking, Zoom may show a submenu: "Enable auto-transcription" / "View captions"
     await this.sleep(800);
-    await this.safePageEval(() => {
-      const enables = Array.from(
-        document.querySelectorAll<HTMLElement>('button, [role="menuitem"], li')
-      ).filter((el) =>
-        /enable.*transcript|auto.transcri|start.*caption|view.*transcript/i.test(
-          (el as HTMLElement).innerText ?? ''
-        )
-      );
-      enables[0]?.click();
-    });
+    const submenuClicked = await this.safeClickByVisibleText([
+      /enable.*transcript/i,
+      /auto.?transcri/i,
+      /start.*caption/i,
+      /view.*transcript/i,
+      /show.*captions?/i,
+      /show.*subtitles?/i,
+    ]);
+    if (submenuClicked) this.log('enableLiveCaptions: clicked caption submenu item');
+    await this.saveScreenshot('after-enable-captions');
+  }
+
+  private async openMoreAndPickCaptionItem(
+    moreSelectors: string[],
+    captionButtonSelectors: string[],
+  ): Promise<boolean> {
+    if (!this.page || this.page.isClosed()) return false;
+
+    for (const frame of this.page.frames()) {
+      if (frame.isDetached()) continue;
+
+      for (const moreSel of moreSelectors) {
+        try {
+          const moreEl = await frame.$(moreSel);
+          if (!moreEl) continue;
+          const visible = await moreEl.evaluate((e) => {
+            const r = e.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+          });
+          if (!visible) continue;
+
+          await moreEl.click();
+          this.log(`enableLiveCaptions: opened More via selector="${moreSel}" frame="${frame.url()}"`);
+          await this.sleep(800);
+
+          for (const menuFrame of this.page.frames()) {
+            if (menuFrame.isDetached()) continue;
+            for (const sel of captionButtonSelectors) {
+              try {
+                const el = await menuFrame.$(sel);
+                if (!el) continue;
+                const v = await el.evaluate((e) => {
+                  const r = e.getBoundingClientRect();
+                  return r.width > 0 && r.height > 0;
+                });
+                if (v) {
+                  await el.click();
+                  this.log(`enableLiveCaptions: clicked via More menu selector="${sel}" frame="${menuFrame.url()}"`);
+                  return true;
+                }
+              } catch { /* try next */ }
+            }
+          }
+
+          const byText = await this.safeClickByVisibleText([
+            /captions?/i,
+            /closed\s+caption/i,
+            /live\s+transcript/i,
+            /show\s+subtitles/i,
+          ]);
+          if (byText) {
+            this.log('enableLiveCaptions: clicked caption item by visible text after opening More');
+            return true;
+          }
+
+          // We successfully opened More already; do not keep toggling it with
+          // other selectors in the same pass.
+          break;
+        } catch { /* try next */ }
+      }
+    }
+
+    // Final fallback: click a visible More button by label text.
+    const openedByText = await this.safeClickByVisibleText([/^more$/i, /more/i]);
+    if (!openedByText) return false;
+    await this.sleep(800);
+    return this.safeClickByVisibleText([
+      /captions?/i,
+      /closed\s+caption/i,
+      /live\s+transcript/i,
+      /show\s+subtitles/i,
+    ]);
+  }
+
+  private async safeClickByVisibleText(patterns: RegExp[]): Promise<boolean> {
+    if (!this.page || this.page.isClosed()) return false;
+
+    for (const frame of this.page.frames()) {
+      if (frame.isDetached()) continue;
+      try {
+        const clicked = await frame.evaluate((sources: string[]) => {
+          const regexes = sources.map((s) => new RegExp(s, 'i'));
+          const elements = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              'button, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], li, a, div, span'
+            )
+          );
+          const target = elements.find((el) => {
+            const rect = el.getBoundingClientRect();
+            const text = (el.innerText || el.textContent || '').trim();
+            if (!(rect.width > 0 && rect.height > 0 && text)) return false;
+            if (!regexes.some((re) => re.test(text))) return false;
+            // Prefer small leaf nodes rather than giant container divs.
+            const childText = Array.from(el.children).map((c) => (c as HTMLElement).innerText || c.textContent || '').join(' ').trim();
+            return !childText || childText === text;
+          });
+          if (!target) return false;
+          target.click();
+          return true;
+        }, patterns.map((p) => p.source));
+        if (clicked) {
+          this.log(`safeClickByVisibleText: clicked text matching ${patterns.map((p) => p.source).join('|')} frame="${frame.url()}"`);
+          return true;
+        }
+      } catch { /* detached */ }
+    }
+
+    return false;
+  }
+
+  private async collectVisibleButtonLabels(): Promise<string[]> {
+    if (!this.page || this.page.isClosed()) return [];
+
+    const labels: string[] = [];
+    for (const frame of this.page.frames()) {
+      if (frame.isDetached()) continue;
+      try {
+        const frameLabels = await frame.evaluate(() => {
+          return Array.from(
+            document.querySelectorAll<HTMLElement>('button, [role="button"], [role="menuitem"]')
+          )
+            .map((el) => {
+              const rect = el.getBoundingClientRect();
+              if (rect.width <= 0 || rect.height <= 0) return '';
+              return (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim();
+            })
+            .filter(Boolean);
+        });
+        labels.push(...frameLabels);
+      } catch { /* detached */ }
+    }
+    return labels;
   }
 
   // ── Meeting-ended detection ───────────────────────────────────────────────

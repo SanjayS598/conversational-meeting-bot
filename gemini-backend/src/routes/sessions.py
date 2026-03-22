@@ -47,6 +47,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/brain/sessions", tags=["brain"])
 
+_caption_buffers: dict[str, dict[str, str]] = {}
+
 
 # ─── Dependency helpers ───────────────────────────────────────────────────────
 
@@ -172,6 +174,22 @@ async def _ensure_summary(
         summary=summary,
         transcript_count=len(session.transcript),
     )
+
+
+def _find_new_caption_text(old_text: str, new_text: str) -> str:
+    old_text = old_text.strip()
+    new_text = new_text.strip()
+    if not new_text:
+        return ""
+    if not old_text:
+        return new_text
+    if new_text.startswith(old_text):
+        return new_text[len(old_text):].strip()
+    for i in range(1, len(old_text) + 1):
+        suffix = old_text[len(old_text) - i :]
+        if new_text.startswith(suffix):
+            return new_text[len(suffix):].strip()
+    return new_text
 
 
 # ─── POST /brain/sessions/{session_id}/start ─────────────────────────────────
@@ -367,13 +385,22 @@ async def caption_segment_http(
     if not text:
         raise HTTPException(status_code=400, detail="Empty caption text")
 
+    speaker = (body.speaker or "Participant").strip() or "Participant"
+    session_buffers = _caption_buffers.setdefault(session_id, {})
+    previous_text = session_buffers.get(speaker, "")
+    new_text = _find_new_caption_text(previous_text, text)
+    session_buffers[speaker] = text
+
+    if not new_text:
+        return {"accepted": True, "deduped": True}
+
     timestamp_ms = max(0, body.elapsed_ms)
     segment = TranscriptSegment(
         session_id=session_id,
-        speaker_label=(body.speaker or "Participant").strip() or "Participant",
+        speaker_label=speaker,
         start_ms=timestamp_ms,
         end_ms=timestamp_ms,
-        text=text,
+        text=new_text,
         confidence=0.98,
     )
     await state_updater.process(session_id, segment)
@@ -409,6 +436,8 @@ async def end_session_http(
         )
     except Exception as exc:
         logger.warning("Caption-mode summary generation failed session_id=%s: %s", session_id, exc)
+
+    _caption_buffers.pop(session_id, None)
 
     return {"ended": True}
 

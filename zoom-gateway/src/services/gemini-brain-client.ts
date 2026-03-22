@@ -9,6 +9,7 @@
  * Audio format: raw 16-bit PCM, 16 kHz, mono (LINEAR16)
  */
 
+import { once } from 'events';
 import axios from 'axios';
 import WebSocket from 'ws';
 import { config } from '../config';
@@ -26,7 +27,7 @@ export class GeminiBrainClient {
 
   /**
    * Start a Gemini brain session for the given meeting session.
-    * Creates the REST session. Transcript ingestion happens via caption events.
+    * Creates the REST session and opens the audio WebSocket.
    */
   async startSession(
     sessionId: string,
@@ -60,12 +61,25 @@ export class GeminiBrainClient {
       return;
     }
 
+    this._openAudioSocket(sessionId, brainUrl);
   }
 
   /** Forward raw PCM audio (int16 array) to the Gemini audio WebSocket. */
   sendAudio(sessionId: string, int16Array: number[]): void {
-    void sessionId;
-    void int16Array;
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    const pcm = Buffer.allocUnsafe(int16Array.length * 2);
+    for (let i = 0; i < int16Array.length; i++) {
+      pcm.writeInt16LE(int16Array[i], i * 2);
+    }
+
+    if (session.ws?.readyState === WebSocket.OPEN && session.connected) {
+      session.ws.send(pcm);
+      return;
+    }
+
+    session.buffer.push(pcm);
   }
 
   /** Forward a deduplicated Zoom caption fragment to the brain service. */
@@ -87,8 +101,37 @@ export class GeminiBrainClient {
 
   /** Gracefully stop the brain session for the given meeting session. */
   async stopSession(sessionId: string): Promise<void> {
-    const s = this.sessions.get(sessionId);
-    if (s) this.sessions.delete(sessionId);
+    const session = this.sessions.get(sessionId);
+    if (session?.ws) {
+      const ws = session.ws;
+      const waitForClose = once(ws, 'close').catch(() => undefined);
+
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'stop' }));
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[GeminiBrainClient] Failed to send stop control ${sessionId}: ${msg}`);
+      }
+
+      try {
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          ws.close();
+          await Promise.race([
+            waitForClose,
+            new Promise((resolve) => setTimeout(resolve, 5_000)),
+          ]);
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[GeminiBrainClient] Failed to close audio WS ${sessionId}: ${msg}`);
+      }
+
+      this.sessions.delete(sessionId);
+      return;
+    }
 
     const brainUrl = config.geminiServiceUrl;
     try {
@@ -109,6 +152,11 @@ export class GeminiBrainClient {
   // ── Private ────────────────────────────────────────────────────────────────
 
   private _openAudioSocket(sessionId: string, brainUrl: string): void {
+    const existing = this.sessions.get(sessionId);
+    if (existing?.ws && existing.ws.readyState !== WebSocket.CLOSED) {
+      return;
+    }
+
     const wsUrl = brainUrl
       .replace(/^http:/, 'ws:')
       .replace(/^https:/, 'wss:');
@@ -153,6 +201,7 @@ export class GeminiBrainClient {
         `[GeminiBrainClient] Audio WS closed session=${sessionId} code=${code} reason=${reason}`,
       );
       session.connected = false;
+      this.sessions.delete(sessionId);
     });
 
     ws.on('error', (err) => {

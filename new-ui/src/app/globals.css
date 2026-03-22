@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --background: #080e1c;
+  --foreground: #e2e8f0;
+  --brand-cyan: #6DD8F0;
+  --brand-purple: #9B7FD4;
+  --brand-primary: #7442C8;
+  --card-bg: #0d1628;
+  --input-bg: #111828;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0a1020;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a3452;
+  border-radius: 3px;
+}
+
+/* Transcript animation */
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slide-in {
+  animation: slide-in 0.25s ease-out;
+}
+
+/* Pulse for live indicator */
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.live-pulse {
+  animation: live-pulse 1.5s ease-in-out infinite;
+}

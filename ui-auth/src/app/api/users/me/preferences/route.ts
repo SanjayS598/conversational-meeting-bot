@@ -25,6 +25,7 @@ export async function GET() {
       tone: "professional",
       speak_threshold: 0.75,
       default_meeting_provider: "zoom",
+      selected_voice_profile_id: null,
     });
   }
 
@@ -41,7 +42,7 @@ export async function PUT(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
-  const { agent_display_name, mode, tone, speak_threshold, default_meeting_provider } =
+  const { agent_display_name, mode, tone, speak_threshold, default_meeting_provider, selected_voice_profile_id } =
     body;
 
   const { data, error } = await supabase
@@ -54,6 +55,7 @@ export async function PUT(req: Request) {
         tone,
         speak_threshold,
         default_meeting_provider,
+        selected_voice_profile_id: selected_voice_profile_id ?? null,
       },
       { onConflict: "user_id" }
     )

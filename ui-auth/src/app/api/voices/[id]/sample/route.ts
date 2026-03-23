@@ -31,18 +31,23 @@ export async function POST(req: Request, { params }: Params) {
 
   if (!profile) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Forward the raw multipart form to the Voice Runtime
   const formData = await req.formData();
+  const sample = formData.get("sample");
+  if (!(sample instanceof File)) {
+    return NextResponse.json({ error: "sample file is required" }, { status: 400 });
+  }
+
+  const bytes = Buffer.from(await sample.arrayBuffer());
   const vrUrl = process.env.VOICE_RUNTIME_URL ?? "http://localhost:4003";
 
   try {
     const vrRes = await callService(vrUrl, `/voices/${id}/sample`, {
       method: "POST",
-      body: formData,
-      headers: {
-        // Let fetch set the Content-Type with boundary for multipart
-        Authorization: `Bearer ${process.env.INTERNAL_SERVICE_TOKEN}`,
-      },
+      body: JSON.stringify({
+        sample_name: sample.name,
+        mime_type: sample.type || "audio/mpeg",
+        audio_base64: bytes.toString("base64"),
+      }),
     });
 
     if (!vrRes.ok) {

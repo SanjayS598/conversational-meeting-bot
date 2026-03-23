@@ -19,6 +19,12 @@ interface ActiveSession {
   session: Session;
   recallBotId: string;
   botJoinedNotified?: boolean;
+  transcriptionProvider?: 'recallai_streaming' | 'meeting_captions';
+  joinedVia?: 'poll' | 'webhook';
+  lastRecallEventAt?: Date;
+  lastTranscriptAt?: Date;
+  webhookMonitorTimer?: NodeJS.Timeout;
+  transcriptMonitorTimer?: NodeJS.Timeout;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +76,9 @@ class SessionManager {
     const active = this.sessions.get(sessionId);
     if (!active) return; // Already gone — idempotent
 
+    if (active.webhookMonitorTimer) clearTimeout(active.webhookMonitorTimer);
+    if (active.transcriptMonitorTimer) clearTimeout(active.transcriptMonitorTimer);
+
     if (active.recallBotId) {
       this.botIdToSession.delete(active.recallBotId);
       await recallClient.removeBot(active.recallBotId).catch(() => {});
@@ -94,15 +103,37 @@ class SessionManager {
     return this.botIdToSession.get(botId);
   }
 
-  markJoined(botId: string): void {
+  markJoined(botId: string, source: 'poll' | 'webhook' = 'webhook'): void {
     const sessionId = this.botIdToSession.get(botId);
     if (!sessionId) return;
 
     const active = this.sessions.get(sessionId);
     if (!active) return;
 
+    active.joinedVia = source;
     active.session.joined_at ??= new Date();
+    if (source === 'poll') {
+      console.warn(
+        `[SessionManager] Session ${sessionId} joined via polling fallback; waiting for Recall webhooks at ${config.recallWebhookUrl}/recall/events`,
+      );
+    }
+
     this.updateStatus(sessionId, 'joined');
+    this.scheduleRecallDiagnostics(sessionId, botId);
+  }
+
+  recordRecallEvent(botId: string, event: string): void {
+    const sessionId = this.botIdToSession.get(botId);
+    if (!sessionId) return;
+
+    const active = this.sessions.get(sessionId);
+    if (!active) return;
+
+    active.lastRecallEventAt = new Date();
+
+    if (event === 'transcript.data' || event === 'transcript.partial_data') {
+      active.lastTranscriptAt = new Date();
+    }
   }
 
   async notifyBotJoined(sessionId: string): Promise<void> {
@@ -123,6 +154,12 @@ class SessionManager {
     await recallClient.outputAudio(active.recallBotId, b64Mp3);
   }
 
+  async startScreenshare(sessionId: string): Promise<void> {
+    const active = this.sessions.get(sessionId);
+    if (!active?.recallBotId) return;
+    await recallClient.outputScreenshare(active.recallBotId);
+  }
+
   // ── Private ───────────────────────────────────────────────────────────────
 
   private async doJoin(session: Session, input: StartSessionInput): Promise<void> {
@@ -133,7 +170,7 @@ class SessionManager {
     this.updateStatus(session.id, 'joining');
     console.log(`[SessionManager] Creating Recall.ai bot for session=${session.id} url=${session.meeting_url}`);
 
-    const { id: botId } = await recallClient.createBot(
+    const { id: botId, transcriptionProvider } = await recallClient.createBot(
       session.meeting_url,
       session.bot_display_name,
       config.recallWebhookUrl,
@@ -142,9 +179,12 @@ class SessionManager {
     const active = this.sessions.get(session.id);
     if (active) {
       active.recallBotId = botId;
+      active.transcriptionProvider = transcriptionProvider;
     }
     this.botIdToSession.set(botId, session.id);
-    console.log(`[SessionManager] Recall.ai bot=${botId} session=${session.id} — starting brain session`);
+    console.log(
+      `[SessionManager] Recall.ai bot=${botId} session=${session.id} transcription=${transcriptionProvider} — starting brain session`,
+    );
 
     this.pollBotStatus(session.id, botId).catch((err: unknown) => {
       console.warn(`[SessionManager] pollBotStatus failed session=${session.id}:`, err);
@@ -155,6 +195,8 @@ class SessionManager {
       prepNotes: input.prep_notes,
       prepId: input.prep_id,
       botDisplayName: session.bot_display_name,
+      voiceProfileId: input.voice_profile_id,
+      providerVoiceId: input.provider_voice_id,
     }).catch((err: unknown) => {
       console.warn(`[SessionManager] Brain start failed session=${session.id}:`, err);
     });
@@ -172,7 +214,7 @@ class SessionManager {
         const status = bot.status?.code ?? '';
 
         if (status === 'in_call_recording' || status === 'in_call_not_recording') {
-          this.markJoined(botId);
+          this.markJoined(botId, 'poll');
           await this.notifyBotJoined(sessionId);
           return;
         }
@@ -234,6 +276,36 @@ class SessionManager {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[SessionManager] notifyControlBackend failed session=${session.id}: ${msg}`);
     }
+  }
+
+  private scheduleRecallDiagnostics(sessionId: string, botId: string): void {
+    const active = this.sessions.get(sessionId);
+    if (!active) return;
+
+    if (active.webhookMonitorTimer) clearTimeout(active.webhookMonitorTimer);
+    if (active.transcriptMonitorTimer) clearTimeout(active.transcriptMonitorTimer);
+
+    active.webhookMonitorTimer = setTimeout(() => {
+      const current = this.sessions.get(sessionId);
+      if (!current || current.recallBotId !== botId || current.session.status !== 'joined') return;
+
+      if (!current.lastRecallEventAt) {
+        console.error(
+          `[SessionManager] No Recall webhooks received within 20s of join for session=${sessionId} bot=${botId}. RECALL_WEBHOOK_URL=${config.recallWebhookUrl}. Live transcript, notes, and follow-up replies require Recall to reach /recall/events.`,
+        );
+      }
+    }, 20_000);
+
+    active.transcriptMonitorTimer = setTimeout(() => {
+      const current = this.sessions.get(sessionId);
+      if (!current || current.recallBotId !== botId || current.session.status !== 'joined') return;
+
+      if (!current.lastTranscriptAt && current.transcriptionProvider === 'meeting_captions') {
+        console.warn(
+          `[SessionManager] No transcript received within 45s for session=${sessionId} while using meeting_captions. Zoom captions may be disabled or unavailable for this meeting.`,
+        );
+      }
+    }, 45_000);
   }
 }
 

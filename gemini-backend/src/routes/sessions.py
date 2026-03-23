@@ -229,6 +229,7 @@ async def start_session(
         allowed_topics=body.allowed_topics,
         response_policy=body.response_policy,
         voice_profile_id=body.voice_profile_id,
+        provider_voice_id=body.provider_voice_id,
         prep_id=body.prep_id,
         bot_display_name=body.bot_display_name,
     )
@@ -300,7 +301,7 @@ async def bot_joined(
     greeting_text = preloader.get_greeting_text(prep_id)
     if greeting_text:
         logger.info("Injecting live-rendered greeting session_id=%s", session_id)
-        await injector.inject_text(session_id, greeting_text)
+        await injector.inject_text(session_id, greeting_text, session.config.provider_voice_id)
         preloader.clear(prep_id)
         return {"accepted": True, "greeting": True}
 

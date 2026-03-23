@@ -2,6 +2,11 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callService } from "@/lib/service-client";
 import { NextResponse } from "next/server";
 
+function isMissingColumnError(message: string | undefined, column: string): boolean {
+  if (!message) return false;
+  return message.includes(`'${column}'`) && message.toLowerCase().includes("schema cache");
+}
+
 interface Params {
   params: Promise<{ id: string }>;
 }
@@ -65,6 +70,24 @@ export async function POST(_req: Request, { params }: Params) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error || !data) return NextResponse.json({ error: error?.message ?? "Failed to finalize voice" }, { status: 500 });
+
+  const autoSelectResult = await supabase
+    .from("user_preferences")
+    .upsert(
+      {
+        user_id: user.id,
+        selected_voice_profile_id: id,
+      },
+      { onConflict: "user_id" }
+    );
+
+  if (
+    autoSelectResult.error &&
+    !isMissingColumnError(autoSelectResult.error.message, "selected_voice_profile_id")
+  ) {
+    return NextResponse.json({ error: autoSelectResult.error.message }, { status: 500 });
+  }
+
   return NextResponse.json(data);
 }

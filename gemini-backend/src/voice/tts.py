@@ -17,7 +17,7 @@ _OUTPUT_FORMAT = "mp3_44100_128"
 _ELEVENLABS_MODEL = "eleven_monolingual_v1"
 
 
-def text_to_speech_mp3_b64(text: str) -> str:
+def text_to_speech_mp3_b64(text: str, voice_id: str | None = None) -> str:
     """Convert text to base64-encoded MP3 audio for Recall.ai output_audio."""
     if not settings.elevenlabs_api_key or not settings.elevenlabs_voice_id:
         raise RuntimeError(
@@ -26,7 +26,7 @@ def text_to_speech_mp3_b64(text: str) -> str:
 
     words = text.split()
     if len(words) <= _CHUNK_WORDS:
-        return base64.b64encode(_render_single_mp3(text)).decode("ascii")
+        return base64.b64encode(_render_single_mp3(text, voice_id)).decode("ascii")
 
     chunks: list[str] = []
     current: list[str] = []
@@ -44,14 +44,15 @@ def text_to_speech_mp3_b64(text: str) -> str:
 
     mp3_parts: list[bytes] = []
     for chunk in chunks:
-        mp3_parts.append(_render_single_mp3(chunk))
+        mp3_parts.append(_render_single_mp3(chunk, voice_id))
 
     return base64.b64encode(b"".join(mp3_parts)).decode("ascii")
 
 
-def _render_single_mp3(text: str) -> bytes:
+def _render_single_mp3(text: str, voice_id: str | None = None) -> bytes:
     """Render a single text chunk via ElevenLabs and return MP3 bytes."""
-    url = f"{_ELEVENLABS_API_URL}/{settings.elevenlabs_voice_id}"
+    effective_voice_id = voice_id or settings.elevenlabs_voice_id
+    url = f"{_ELEVENLABS_API_URL}/{effective_voice_id}"
     headers = {
         "xi-api-key": settings.elevenlabs_api_key,
         "Content-Type": "application/json",
@@ -69,7 +70,7 @@ def _render_single_mp3(text: str) -> bytes:
 
     logger.info(
         "ElevenLabs render voice_id=%s model=%s chars=%d",
-        settings.elevenlabs_voice_id,
+        effective_voice_id,
         _ELEVENLABS_MODEL,
         len(text),
     )

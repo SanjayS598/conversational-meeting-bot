@@ -36,6 +36,7 @@ class PrepareResponse(BaseModel):
 async def prepare_agent(
     display_name: Annotated[str, Form()],
     personal_notes: Annotated[str, Form()] = "",
+    provider_voice_id: Annotated[str | None, Form()] = None,
     files: Annotated[list[UploadFile], File()] = [],
 ) -> PrepareResponse:
     """
@@ -91,6 +92,7 @@ async def prepare_agent(
         display_name=display_name.strip(),
         personal_notes=personal_notes,
         documents=documents,
+        provider_voice_id=provider_voice_id,
     )
 
     return PrepareResponse(

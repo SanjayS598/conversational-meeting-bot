@@ -102,6 +102,10 @@ export default function LiveMeetingPage({ params }: Props) {
     }, delay);
   }, [fetchLiveState]);
 
+  const startSession = useCallback(async (id: string) => {
+    await fetch(`/api/meetings/${id}/start`, { method: "POST" }).catch(() => {});
+  }, []);
+
   // Start session (if not already started) and begin polling
   useEffect(() => {
     if (!sessionId) return;
@@ -117,14 +121,14 @@ export default function LiveMeetingPage({ params }: Props) {
           currentStatus = data.session.status;
           if (data.session.status === "created") {
             // Only start if session hasn't been kicked off yet
-            await fetch(`/api/meetings/${sessionId}/start`, { method: "POST" }).catch(() => {});
+            await startSession(sessionId);
             currentStatus = "joining";
           }
           setState(data);
         }
       } catch {
         // Fall back to trying start anyway
-        await fetch(`/api/meetings/${sessionId}/start`, { method: "POST" }).catch(() => {});
+        await startSession(sessionId);
         currentStatus = "joining";
       }
 
@@ -136,7 +140,7 @@ export default function LiveMeetingPage({ params }: Props) {
     return () => {
       if (pollRef.current) clearTimeout(pollRef.current);
     };
-  }, [sessionId, fetchLiveState, schedulePoll]);
+  }, [sessionId, fetchLiveState, schedulePoll, startSession]);
 
   // Auto-scroll transcript
   useEffect(() => {

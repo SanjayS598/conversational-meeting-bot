@@ -59,6 +59,7 @@ async def prepare(
     display_name: str,
     personal_notes: str,
     documents: list[tuple[str, str]],  # [(filename, extracted_text), ...]
+    provider_voice_id: str | None = None,
 ) -> PrepResult:
     """Build context, pre-generate greeting text and audio.
 
@@ -86,7 +87,7 @@ async def prepare(
 
     # Pre-render greeting audio (best-effort — meeting still works without it)
     try:
-        audio_mp3_b64 = text_to_speech_mp3_b64(greeting)
+        audio_mp3_b64 = text_to_speech_mp3_b64(greeting, provider_voice_id)
         _prep_audio[prep_id] = audio_mp3_b64
         logger.info(
             "Greeting audio pre-rendered prep_id=%s chars=%d", prep_id, len(audio_mp3_b64)

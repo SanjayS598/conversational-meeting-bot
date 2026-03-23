@@ -1,7 +1,12 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
-/** GET /api/voices/me — convenience endpoint to get the current user's voice profile */
+function isMissingColumnError(message: string | undefined, column: string): boolean {
+  if (!message) return false;
+  return message.includes(`'${column}'`) && message.toLowerCase().includes("schema cache");
+}
+
+/** GET /api/voices/me — list the current user's saved voices and active selection */
 export async function GET() {
   const supabase = await createSupabaseServerClient();
   const {
@@ -10,12 +15,40 @@ export async function GET() {
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data, error } = await supabase
-    .from("voice_profiles")
-    .select("*")
-    .eq("user_id", user.id)
-    .single();
+  const [{ data: voices, error: voiceError }, prefsResult] = await Promise.all([
+    supabase
+      .from("voice_profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("user_preferences")
+      .select("selected_voice_profile_id")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+  ]);
 
-  if (error || !data) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(data);
+  if (voiceError) {
+    return NextResponse.json({ error: voiceError.message }, { status: 500 });
+  }
+
+  const items = (voices ?? []).map((item, index) => ({
+    ...item,
+    display_name: item.display_name ?? `Voice ${index + 1}`,
+  }));
+  const selectedVoiceProfileId = isMissingColumnError(
+    prefsResult.error?.message,
+    "selected_voice_profile_id"
+  )
+    ? null
+    : prefsResult.data?.selected_voice_profile_id ?? null;
+  const selectedProfile = items.find((item) => item.id === selectedVoiceProfileId) ?? null;
+  const currentVoiceId = process.env.ELEVENLABS_VOICE_ID ?? null;
+
+  return NextResponse.json({
+    items,
+    selected_voice_profile_id: selectedVoiceProfileId,
+    current_voice_profile_id: selectedProfile?.id ?? null,
+    current_voice_id: currentVoiceId,
+  });
 }

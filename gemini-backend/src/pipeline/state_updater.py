@@ -112,6 +112,8 @@ class StateUpdater:
             logger.error(
                 "LangGraph pipeline failed session_id=%s: %s", session_id, exc
             )
+            # Keep conversational follow-ups alive even if notes generation fails.
+            self._maybe_trigger_conv_response(session_id, new_segment, recent)
             return
 
         # ── Persist AI results to Redis ────────────────────────────────────────
@@ -221,7 +223,9 @@ class StateUpdater:
                 logger.info(
                     "Conversational reply session_id=%s: %s", session_id, reply[:80]
                 )
-                await injector.inject_text(session_id, reply)
+                session_state = await self._session_manager.get(session_id)
+                provider_voice_id = session_state.config.provider_voice_id if session_state else None
+                await injector.inject_text(session_id, reply, provider_voice_id)
 
         task = asyncio.create_task(_respond_after_debounce())
         _debounce_tasks[session_id] = task

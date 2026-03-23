@@ -18,8 +18,12 @@ npm run dev                   # ts-node-dev, hot-reloads
 | Variable | Where to get it |
 |---|---|
 | `INTERNAL_SERVICE_SECRET` | `openssl rand -hex 32` — shared with all other services |
+| `RECALL_API_KEY` | Recall.ai API key |
+| `RECALL_WEBHOOK_URL` | Public HTTPS base URL that forwards to the local gateway on port `3001` |
 
 No Zoom SDK keys are needed: the gateway joins via the Zoom **web client** (browser automation).
+
+`RECALL_WEBHOOK_URL` must point to a live public tunnel for the current machine. A stale `trycloudflare.com` URL will still let the bot join via polling fallback, but Recall webhooks will never arrive, which breaks live transcript ingestion, notes, and conversational follow-up replies.
 
 ---
 

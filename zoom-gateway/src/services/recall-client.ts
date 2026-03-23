@@ -87,7 +87,7 @@ class RecallClient {
     meetingUrl: string,
     botName: string,
     webhookUrl: string,
-  ): Promise<{ id: string }> {
+  ): Promise<{ id: string; transcriptionProvider: 'recallai_streaming' | 'meeting_captions' }> {
     const payload = {
       meeting_url: meetingUrl,
       bot_name: botName,
@@ -119,7 +119,8 @@ class RecallClient {
     };
 
     try {
-      return await this.createBotRequest(payload);
+      const bot = await this.createBotRequest(payload);
+      return { ...bot, transcriptionProvider: 'recallai_streaming' };
     } catch (err: unknown) {
       if (!this.shouldRetryWithMeetingCaptions(err)) {
         throw this.toCreateBotError(err);
@@ -155,7 +156,7 @@ class RecallClient {
         webhook_url: `${webhookUrl}/recall/events`,
       }).catch((retryErr: unknown) => {
         throw this.toCreateBotError(retryErr);
-      });
+      }).then((bot) => ({ ...bot, transcriptionProvider: 'meeting_captions' }));
     }
   }
 
@@ -187,6 +188,23 @@ class RecallClient {
       if (axios.isAxiosError(err)) {
         const body = JSON.stringify(err.response?.data ?? {});
         console.error(`[RecallClient] outputAudio failed ${err.response?.status}: ${body}`);
+      }
+      throw err;
+    }
+  }
+
+  /** Start Recall.ai screensharing for the bot. */
+  async outputScreenshare(botId: string): Promise<void> {
+    try {
+      await axios.post(
+        `${this.base}/v1/bot/${botId}/output_screenshare/`,
+        {},
+        { headers: this.headers, timeout: 30_000 },
+      );
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const body = JSON.stringify(err.response?.data ?? {});
+        console.error(`[RecallClient] outputScreenshare failed ${err.response?.status}: ${body}`);
       }
       throw err;
     }

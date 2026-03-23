@@ -14,7 +14,7 @@ export class VoiceProfileService {
     requireFields(input, ["user_id", "display_name"]);
 
     const profile = {
-      id: createId("voice"),
+      id: input.voice_profile_id || createId("voice"),
       user_id: input.user_id,
       provider: "elevenlabs",
       provider_voice_id: null,

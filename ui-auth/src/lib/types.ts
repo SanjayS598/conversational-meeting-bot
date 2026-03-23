@@ -19,6 +19,7 @@ export interface UserPreferences {
   tone: string;
   speak_threshold: number;
   default_meeting_provider: string;
+  selected_voice_profile_id?: string | null;
 }
 
 export interface VoiceProfile {
@@ -26,10 +27,12 @@ export interface VoiceProfile {
   user_id: string;
   provider: string;
   provider_voice_id: string | null;
+  display_name: string;
   status: VoiceProfileStatus;
   sample_count: number;
   consent_confirmed: boolean;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface MeetingSession {

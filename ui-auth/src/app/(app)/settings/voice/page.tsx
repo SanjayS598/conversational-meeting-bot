@@ -8,40 +8,104 @@ import {
   AlertCircle,
   Loader2,
   ShieldCheck,
-  Trash2,
+  Radio,
 } from "lucide-react";
 import clsx from "clsx";
 import type { VoiceProfile } from "@/lib/types";
+import {
+  getStoredSelectedVoiceProfileId,
+  setStoredSelectedVoiceProfileId,
+} from "@/lib/voice-selection";
 
 const STEP_LABELS = ["Consent", "Upload Samples", "Finalize"];
 
+interface VoicesResponse {
+  items: VoiceProfile[];
+  selected_voice_profile_id: string | null;
+  current_voice_profile_id: string | null;
+  current_voice_id: string | null;
+}
+
+function dedupeProfiles(items: VoiceProfile[]): VoiceProfile[] {
+  const seen = new Set<string>();
+  const unique: VoiceProfile[] = [];
+
+  for (const item of items) {
+    if (seen.has(item.id)) {
+      continue;
+    }
+
+    seen.add(item.id);
+    unique.push(item);
+  }
+
+  return unique;
+}
+
 export default function VoiceSettingsPage() {
-  const [profile, setProfile] = useState<VoiceProfile | null>(null);
+  const [profiles, setProfiles] = useState<VoiceProfile[]>([]);
+  const [selectedVoiceProfileId, setSelectedVoiceProfileId] = useState<string | null>(null);
+  const [currentVoiceId, setCurrentVoiceId] = useState<string | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
+  const [voiceName, setVoiceName] = useState("");
   const [step, setStep] = useState(0); // 0=consent, 1=upload, 2=finalize
   const [consentChecked, setConsentChecked] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploadedCount, setUploadedCount] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  async function loadVoices() {
+    const res = await fetch("/api/voices/me");
+    const data = (await res.json()) as VoicesResponse & { error?: string };
+    if (!res.ok) {
+      if (res.status !== 404) throw new Error(data.error ?? "Failed to load voices");
+      setProfiles([]);
+      setSelectedVoiceProfileId(null);
+      setCurrentVoiceId(null);
+      return;
+    }
+
+    const items = dedupeProfiles(data.items ?? []);
+    const storedSelectedId = getStoredSelectedVoiceProfileId();
+    const effectiveSelectedId =
+      items.some((item) => item.id === storedSelectedId)
+        ? storedSelectedId
+        : data.selected_voice_profile_id ?? null;
+    const effectiveSelectedProfile =
+      items.find((item) => item.id === effectiveSelectedId) ?? null;
+
+    setProfiles(items);
+    setSelectedVoiceProfileId(effectiveSelectedId);
+    setCurrentVoiceId(
+      effectiveSelectedProfile?.provider_voice_id ?? data.current_voice_id ?? null
+    );
+
+    if (effectiveSelectedId) {
+      setStoredSelectedVoiceProfileId(effectiveSelectedId);
+    }
+
+    const activeProfile = effectiveSelectedProfile;
+    const latestPending = items.find((item) => item.status !== "ready") ?? null;
+    const workingProfile = latestPending ?? activeProfile;
+    if (workingProfile) {
+      setProfileId(workingProfile.id);
+      setUploadedCount(workingProfile.sample_count ?? 0);
+      if (workingProfile.status === "ready") setStep(2);
+      else if ((workingProfile.sample_count ?? 0) > 0) setStep(1);
+      else setStep(0);
+    }
+  }
+
   useEffect(() => {
-    fetch("/api/voices/me")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data && !data.error) {
-          setProfile(data);
-          setProfileId(data.id);
-          setUploadedCount(data.sample_count ?? 0);
-          if (data.status === "ready") setStep(2);
-          else if (data.sample_count > 0) setStep(1);
-          else setStep(0);
-        }
-      })
+    loadVoices()
       .catch(() => {});
   }, []);
+
+  const profile = profiles.find((item) => item.id === profileId) ?? null;
 
   async function handleEnroll() {
     if (!consentChecked) return;
@@ -51,13 +115,15 @@ export default function VoiceSettingsPage() {
       const res = await fetch("/api/voices/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ consent_confirmed: true }),
+        body: JSON.stringify({ consent_confirmed: true, display_name: voiceName.trim() || undefined }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Enroll failed");
       const data = await res.json();
       setProfileId(data.id);
-      setProfile(data);
+      setProfiles((prev) => dedupeProfiles([data, ...prev]));
       setStep(1);
+      setUploadedCount(0);
+      setVoiceName("");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Enrollment failed");
     } finally {
@@ -81,7 +147,11 @@ export default function VoiceSettingsPage() {
           body: form,
         });
         if (!res.ok) throw new Error((await res.json()).error ?? "Upload failed");
-        setUploadedCount((c) => c + 1);
+        const data = await res.json();
+        setUploadedCount(data.sample_count ?? uploadedCount + 1);
+        setProfiles((prev) =>
+          dedupeProfiles(prev.map((item) => (item.id === data.id ? data : item)))
+        );
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Upload failed");
         break;
@@ -102,12 +172,35 @@ export default function VoiceSettingsPage() {
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Finalize failed");
       const data = await res.json();
-      setProfile(data);
+      setProfiles((prev) =>
+        dedupeProfiles(prev.map((item) => (item.id === data.id ? data : item)))
+      );
+      setStoredSelectedVoiceProfileId(data.id);
+      setSelectedVoiceProfileId(data.id);
+      setCurrentVoiceId(data.provider_voice_id ?? null);
+      await loadVoices();
       setStep(2);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Finalization failed");
     } finally {
       setFinalizing(false);
+    }
+  }
+
+  async function handleSelect(id: string) {
+    setSelectingId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/voices/${id}/select`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to select voice");
+      setStoredSelectedVoiceProfileId(id);
+      setSelectedVoiceProfileId(id);
+      setCurrentVoiceId(data.current_voice_id ?? null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to select voice");
+    } finally {
+      setSelectingId(null);
     }
   }
 
@@ -121,6 +214,49 @@ export default function VoiceSettingsPage() {
         <p className="text-slate-400 text-sm mt-1">
           Add your voice so the AI can speak in meetings using your cloned voice.
         </p>
+      </div>
+
+      <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-6 space-y-4 mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-white">Active Voice</h2>
+            <p className="text-sm text-slate-400">This is the ElevenLabs voice ID currently used for meeting speech.</p>
+          </div>
+          <div className="text-right">
+            <div className="text-xs uppercase tracking-wide text-slate-500">Current Voice ID</div>
+            <div className="text-sm font-mono text-[#6DD8F0] break-all">{currentVoiceId ?? "No selected custom voice"}</div>
+          </div>
+        </div>
+
+        {profiles.length > 0 && (
+          <div className="space-y-3 pt-2 border-t border-slate-800/60">
+            {profiles.map((item) => {
+              const selected = item.id === selectedVoiceProfileId;
+              const ready = item.status === "ready" && !!item.provider_voice_id;
+              return (
+                <div key={item.id} className="flex items-center justify-between gap-4 rounded-xl border border-slate-800/70 bg-[#111828] px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-white truncate">{item.display_name ?? "My Voice"}</p>
+                      {selected && <span className="text-[10px] uppercase tracking-wide text-emerald-400">Selected</span>}
+                    </div>
+                    <p className="text-xs text-slate-400">Status: {item.status} • Samples: {item.sample_count}</p>
+                    <p className="text-xs font-mono text-slate-500 break-all">{item.provider_voice_id ?? "No provider voice ID yet"}</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!ready || selectingId === item.id || selected}
+                    onClick={() => handleSelect(item.id)}
+                    className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium bg-[#3B82F6] hover:bg-[#4F94F8] disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white transition-colors"
+                  >
+                    {selectingId === item.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Radio className="w-4 h-4" />}
+                    {selected ? "Active" : "Use Voice"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Stepper */}
@@ -195,6 +331,17 @@ export default function VoiceSettingsPage() {
               I consent to creating a voice clone for use in Clairo meetings.
             </span>
           </label>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Voice Name</label>
+            <input
+              type="text"
+              value={voiceName}
+              onChange={(e) => setVoiceName(e.target.value)}
+              className="w-full bg-[#111828] border border-slate-700/80 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#6DD8F0]/60 focus:border-transparent transition"
+              placeholder="e.g. Boardroom Voice"
+            />
+          </div>
 
           <button
             onClick={handleEnroll}
@@ -290,8 +437,10 @@ export default function VoiceSettingsPage() {
           </div>
 
           <div className="space-y-2 text-sm">
+            <InfoRow label="Voice Name" value={profile.display_name ?? "My Voice"} />
             <InfoRow label="Status" value={profile.status} />
             <InfoRow label="Provider" value={profile.provider} />
+            <InfoRow label="Provider Voice ID" value={profile.provider_voice_id ?? "not assigned"} />
             <InfoRow label="Samples uploaded" value={String(profile.sample_count)} />
             <InfoRow
               label="Created"
@@ -302,16 +451,15 @@ export default function VoiceSettingsPage() {
           <div className="pt-2 border-t border-slate-800">
             <button
               onClick={() => {
-                setProfile(null);
                 setProfileId(null);
                 setUploadedCount(0);
                 setConsentChecked(false);
                 setStep(0);
               }}
-              className="flex items-center gap-2 text-sm text-red-400 hover:text-red-300 transition-colors"
+              className="flex items-center gap-2 text-sm text-[#6DD8F0] hover:text-[#93C5FD] transition-colors"
             >
-              <Trash2 className="w-4 h-4" />
-              Delete voice profile and re-enroll
+              <Mic className="w-4 h-4" />
+              Create another voice
             </button>
           </div>
         </div>

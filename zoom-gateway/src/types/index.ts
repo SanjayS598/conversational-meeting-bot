@@ -30,6 +30,10 @@ export interface StartSessionInput {
   prep_notes?: string;
   /** prep_id from /voice/prepare — activates conversational AI in the brain. */
   prep_id?: string;
+  /** Selected voice profile id from the control backend. */
+  voice_profile_id?: string;
+  /** Selected ElevenLabs provider voice id for direct runtime TTS. */
+  provider_voice_id?: string;
 }
 
 export interface Session {

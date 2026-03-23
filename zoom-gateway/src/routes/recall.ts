@@ -22,6 +22,7 @@ router.post('/events', async (req, res) => {
   const botId: string = event.data?.bot?.id ?? '';
 
   console.log(`[RecallWebhook] event=${event.event} bot_id=${botId}`);
+  sessionManager.recordRecallEvent(botId, event.event);
 
   if (event.event === 'bot.status_change') {
     const status: string = event.data?.bot?.status?.code ?? '';
@@ -34,7 +35,7 @@ router.post('/events', async (req, res) => {
 
     if (status === 'in_call_recording' || status === 'in_call_not_recording') {
       console.log(`[RecallWebhook] Bot in call session=${sessionId}`);
-      sessionManager.markJoined(botId);
+      sessionManager.markJoined(botId, 'webhook');
       sessionManager.notifyBotJoined(sessionId).catch(console.error);
     } else if (status === 'done' || status === 'fatal' || status === 'call_ended') {
       console.log(`[RecallWebhook] Bot done session=${sessionId} status=${status}`);

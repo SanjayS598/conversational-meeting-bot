@@ -12,7 +12,7 @@ router.use(requireInternalAuth);
 // Body: StartSessionInput
 // Returns 202 with the created Session object (status will be 'created', bot joins async)
 router.post('/start', async (req, res) => {
-  const { meeting_session_id, user_id, meeting_url, passcode, bot_display_name, meeting_objective, prep_notes, prep_id } =
+  const { meeting_session_id, user_id, meeting_url, passcode, bot_display_name, meeting_objective, prep_notes, prep_id, voice_profile_id, provider_voice_id } =
     req.body as Partial<StartSessionInput>;
 
   if (!meeting_session_id || !user_id || !meeting_url) {
@@ -32,6 +32,8 @@ router.post('/start', async (req, res) => {
       meeting_objective,
       prep_notes,
       prep_id,
+      voice_profile_id,
+      provider_voice_id,
     });
     res.status(202).json(session);
   } catch (err) {
@@ -65,6 +67,17 @@ router.post('/:id/audio-out', async (req, res) => {
 
   try {
     await sessionManager.receiveAudioOut(req.params.id, b64_mp3);
+    res.status(202).json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Internal error';
+    res.status(500).json({ error: message });
+  }
+});
+
+// POST /sessions/:id/screenshare-start
+router.post('/:id/screenshare-start', async (req, res) => {
+  try {
+    await sessionManager.startScreenshare(req.params.id);
     res.status(202).json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal error';

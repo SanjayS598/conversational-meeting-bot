@@ -9,6 +9,7 @@ function env(key: string, fallback?: string): string {
 
 export const config = {
   port: parseInt(env('PORT', '3001'), 10),
+  headless: env('HEADLESS', 'true').toLowerCase() !== 'false',
   internalServiceSecret: env('INTERNAL_SERVICE_SECRET', ''),
   geminiServiceUrl: env('GEMINI_SERVICE_URL', 'http://localhost:3002'),
   controlBackendUrl: env('CONTROL_BACKEND_URL', 'http://localhost:3000'),

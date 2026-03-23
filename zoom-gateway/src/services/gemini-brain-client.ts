@@ -21,6 +21,8 @@ export class GeminiBrainClient {
       prepNotes?: string;
       prepId?: string;
       botDisplayName?: string;
+      voiceProfileId?: string;
+      providerVoiceId?: string;
     } = {},
   ): Promise<void> {
     try {
@@ -32,6 +34,8 @@ export class GeminiBrainClient {
           mode: 'notes_only',
           prep_id: opts.prepId ?? null,
           bot_display_name: opts.botDisplayName ?? null,
+          voice_profile_id: opts.voiceProfileId ?? null,
+          provider_voice_id: opts.providerVoiceId ?? null,
         },
         { headers: this.authHeaders, timeout: 15_000 },
       );

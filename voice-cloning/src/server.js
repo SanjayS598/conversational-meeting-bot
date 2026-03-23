@@ -53,6 +53,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && pathname === "/voices/library") {
+      const category = url.searchParams.get("category") || "all";
+      const voices = await provider.listVoices({ category });
+      sendJson(res, 200, { items: voices });
+      return;
+    }
+
     if (req.method === "POST" && pathname === "/voices/enroll") {
       const body = await parseJsonBody(req);
       const profile = voiceProfileService.createEnrollment(body);

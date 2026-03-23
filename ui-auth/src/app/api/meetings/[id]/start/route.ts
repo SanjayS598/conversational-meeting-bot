@@ -34,6 +34,8 @@ export async function POST(_req: Request, { params }: Params) {
   let prep_notes: string | undefined;
   let prep_id: string | undefined;
   let bot_display_name: string | undefined;
+  let body_voice_profile_id: string | undefined;
+  let body_provider_voice_id: string | undefined;
   try {
     const body = await _req.json().catch(() => ({}));
     passcode = body.passcode || undefined;
@@ -41,6 +43,8 @@ export async function POST(_req: Request, { params }: Params) {
     prep_notes = body.prep_notes || undefined;
     prep_id = body.prep_id || undefined;
     bot_display_name = body.bot_display_name || undefined;
+    body_voice_profile_id = body.voice_profile_id || undefined;
+    body_provider_voice_id = body.provider_voice_id || undefined;
   } catch {
     // Body is optional — ignore parse errors
   }
@@ -51,12 +55,25 @@ export async function POST(_req: Request, { params }: Params) {
     .update({ status: "joining", started_at: new Date().toISOString() })
     .eq("id", id);
 
-  // Fetch user preferences for agent config
+  // Fetch user preferences for agent config + voice selection
   const { data: prefs } = await supabase
     .from("user_preferences")
     .select("*")
     .eq("user_id", user.id)
     .single();
+
+  // Resolve voice: body > prefs > null
+  const voice_profile_id: string | undefined = body_voice_profile_id ?? prefs?.selected_voice_profile_id ?? undefined;
+  // Fetch provider_voice_id from the selected voice profile if not explicitly provided
+  let provider_voice_id: string | undefined = body_provider_voice_id ?? (prefs as Record<string, unknown>)?.provider_voice_id as string | undefined;
+  if (!provider_voice_id && voice_profile_id) {
+    const { data: vp } = await supabase
+      .from("voice_profiles")
+      .select("provider_voice_id")
+      .eq("id", voice_profile_id)
+      .single();
+    provider_voice_id = vp?.provider_voice_id ?? undefined;
+  }
 
   // Tell the Meeting Gateway to join
   const gwUrl = process.env.MEETING_GATEWAY_URL ?? "http://localhost:3001";
@@ -73,6 +90,8 @@ export async function POST(_req: Request, { params }: Params) {
         meeting_objective,
         prep_notes,
         prep_id,
+        voice_profile_id,
+        provider_voice_id,
       }),
     });
   } catch (err: unknown) {

@@ -17,6 +17,7 @@ import {
   Loader2,
   Mic,
 } from "lucide-react";
+import { getStoredSelectedVoiceProfileId, getStoredProviderVoiceId } from "@/lib/voice-selection";
 
 // Accepted file types for document upload
 const ACCEPTED_TYPES = [".pdf", ".pptx", ".ppt", ".txt", ".md"];
@@ -175,6 +176,8 @@ export default function NewMeetingPage() {
           prep_notes: prepNotes || undefined,
           bot_display_name: botDisplayName || undefined,
           prep_id: prepData?.prep_id || undefined,
+          voice_profile_id: getStoredSelectedVoiceProfileId() || undefined,
+          provider_voice_id: getStoredProviderVoiceId() || undefined,
         }),
       });
 

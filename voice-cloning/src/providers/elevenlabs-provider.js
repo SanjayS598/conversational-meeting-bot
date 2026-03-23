@@ -145,4 +145,47 @@ export class ElevenLabsProvider {
       providerMode: "live"
     };
   }
+
+  /**
+   * List voices available to the account (own clones + premade library).
+   * Returns a normalised array so the UI doesn't need to know the raw EL shape.
+   */
+  async listVoices({ category = "all" } = {}) {
+    if (!this.enabled) {
+      return [
+        { voice_id: "mock_voice_1", name: "Mock Voice 1", category: "premade", preview_url: null, labels: {} },
+        { voice_id: "mock_voice_2", name: "Mock Voice 2", category: "premade", preview_url: null, labels: {} }
+      ];
+    }
+
+    const response = await fetch(`${ELEVENLABS_BASE_URL}/v1/voices`, {
+      headers: { "xi-api-key": config.elevenLabsApiKey }
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw httpError(502, "ElevenLabs voice list request failed.", {
+        providerStatus: response.status,
+        providerBody: text
+      });
+    }
+
+    const data = await response.json();
+    const voices = (data.voices || []).map((v) => ({
+      voice_id: v.voice_id,
+      name: v.name,
+      category: v.category || "premade",
+      preview_url: v.preview_url || null,
+      labels: v.labels || {},
+      description: v.description || null,
+      accent: v.labels?.accent || null,
+      gender: v.labels?.gender || null,
+      age: v.labels?.age || null,
+      use_case: v.labels?.use_case || null
+    }));
+
+    if (category === "cloned") return voices.filter((v) => v.category === "cloned");
+    if (category === "premade") return voices.filter((v) => v.category === "premade");
+    return voices;
+  }
 }

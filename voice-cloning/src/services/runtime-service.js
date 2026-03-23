@@ -59,6 +59,7 @@ export class RuntimeService {
       provider_mode: speech.providerMode,
       content_type: speech.contentType,
       duration_ms: speech.durationMs,
+      audio_filename: path.basename(filePath),
       audio_ref: filePath
     };
   }

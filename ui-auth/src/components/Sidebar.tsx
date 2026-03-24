@@ -32,9 +32,9 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-60 flex-shrink-0 flex flex-col bg-[#0c1528] border-r border-slate-800/60 min-h-screen">
+    <aside className="w-60 flex-shrink-0 flex flex-col bg-[#111a31]/92 border-r border-slate-700/70 shadow-[8px_0_30px_rgba(0,0,0,0.22)] backdrop-blur-xl min-h-screen">
       {/* Logo */}
-      <div className="flex items-center justify-center px-5 py-5 border-b border-slate-800">
+      <div className="flex items-center justify-center px-5 py-5 border-b border-slate-700/70">
         <Image src="/ClairoLogo.png" alt="Clairo" width={120} height={120} className="rounded-lg" />
       </div>
 
@@ -49,8 +49,8 @@ export default function Sidebar() {
               className={clsx(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 active
-                  ? "bg-[#6DD8F0]/10 text-[#6DD8F0] border border-[#6DD8F0]/25"
-                  : "text-slate-400 hover:text-slate-100 hover:bg-slate-800/60"
+                  ? "bg-[#6DD8F0]/12 text-[#83e8ff] border border-[#6DD8F0]/30"
+                  : "text-slate-300 hover:text-slate-100 hover:bg-slate-700/55"
               )}
             >
               <Icon className="w-4 h-4 flex-shrink-0" />
@@ -64,7 +64,7 @@ export default function Sidebar() {
       <div className="px-3 pb-5">
         <button
           onClick={handleSignOut}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-red-400 hover:bg-red-900/20 transition-colors"
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300 hover:text-red-300 hover:bg-red-900/20 transition-colors"
         >
           <LogOut className="w-4 h-4" />
           Sign Out

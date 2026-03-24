@@ -20,6 +20,7 @@ import type { VoiceProfile } from "@/lib/types";
 import {
   getStoredSelectedVoiceProfileId,
   setStoredSelectedVoiceProfileId,
+  getStoredProviderVoiceId,
   setStoredProviderVoiceId,
 } from "@/lib/voice-selection";
 
@@ -132,7 +133,7 @@ export default function VoiceSettingsPage() {
 
   const { playingId, loadingId, play, stop } = useAudioPlayer();
 
-  async function loadVoices() {
+  const loadVoices = useCallback(async () => {
     const res = await fetch("/api/voices/me");
     const data = (await res.json()) as VoicesResponse & { error?: string };
     if (!res.ok) {
@@ -146,18 +147,28 @@ export default function VoiceSettingsPage() {
 
     const items = dedupeProfiles(data.items ?? []);
     const storedSelectedId = getStoredSelectedVoiceProfileId();
+    const storedProviderVoiceId = getStoredProviderVoiceId();
     const effectiveSelectedId =
       items.some((item) => item.id === storedSelectedId)
         ? storedSelectedId
         : data.selected_voice_profile_id ?? null;
     const effectiveSelectedProfile = items.find((item) => item.id === effectiveSelectedId) ?? null;
+    const effectiveProviderVoiceId =
+      effectiveSelectedProfile?.provider_voice_id
+        ?? storedProviderVoiceId
+        ?? data.current_voice_id
+        ?? null;
 
     setProfiles(items);
     setSelectedVoiceProfileId(effectiveSelectedId);
-    setCurrentVoiceId(effectiveSelectedProfile?.provider_voice_id ?? data.current_voice_id ?? null);
+    setCurrentVoiceId(effectiveProviderVoiceId);
     setCurrentVoiceName(effectiveSelectedProfile?.display_name ?? null);
+    setLibrarySelectedId(
+      effectiveSelectedProfile?.provider_voice_id ? null : effectiveProviderVoiceId
+    );
 
     if (effectiveSelectedId) setStoredSelectedVoiceProfileId(effectiveSelectedId);
+    setStoredProviderVoiceId(effectiveProviderVoiceId);
 
     const activeProfile = effectiveSelectedProfile;
     const latestPending = items.find((item) => item.status !== "ready") ?? null;
@@ -169,9 +180,9 @@ export default function VoiceSettingsPage() {
       else if ((workingProfile.sample_count ?? 0) > 0) setStep(1);
       else setStep(0);
     }
-  }
+  }, []);
 
-  async function loadLibraryVoices() {
+  const loadLibraryVoices = useCallback(async () => {
     if (libraryVoices.length > 0) return; // cached
     setLibraryLoading(true);
     setLibraryError(null);
@@ -185,15 +196,24 @@ export default function VoiceSettingsPage() {
     } finally {
       setLibraryLoading(false);
     }
-  }
+  }, [libraryVoices.length]);
 
   useEffect(() => {
     loadVoices().catch(() => {});
-  }, []);
+  }, [loadVoices]);
 
   useEffect(() => {
     if (activeTab === "library") loadLibraryVoices();
-  }, [activeTab]);
+  }, [activeTab, loadLibraryVoices]);
+
+  useEffect(() => {
+    if (selectedVoiceProfileId || !currentVoiceId || libraryVoices.length === 0) return;
+    const selectedLibraryVoice = libraryVoices.find((voice) => voice.voice_id === currentVoiceId);
+    if (selectedLibraryVoice) {
+      setCurrentVoiceName(selectedLibraryVoice.name);
+      setLibrarySelectedId(selectedLibraryVoice.voice_id);
+    }
+  }, [libraryVoices, currentVoiceId, selectedVoiceProfileId]);
 
   const profile = profiles.find((item) => item.id === profileId) ?? null;
 
@@ -291,7 +311,9 @@ export default function VoiceSettingsPage() {
       const data = await res.json();
       setProfiles((prev) => dedupeProfiles(prev.map((item) => (item.id === data.id ? data : item))));
       setStoredSelectedVoiceProfileId(data.id);
+      setStoredProviderVoiceId(data.provider_voice_id ?? null);
       setSelectedVoiceProfileId(data.id);
+      setLibrarySelectedId(null);
       setCurrentVoiceId(data.provider_voice_id ?? null);
       setCurrentVoiceName((data as VoiceProfile).display_name ?? null);
       await loadVoices();
@@ -311,7 +333,9 @@ export default function VoiceSettingsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to select voice");
       setStoredSelectedVoiceProfileId(id);
+      setStoredProviderVoiceId(data.current_voice_id ?? null);
       setSelectedVoiceProfileId(id);
+      setLibrarySelectedId(null);
       setCurrentVoiceId(data.current_voice_id ?? null);
       setCurrentVoiceName(profiles.find((p) => p.id === id)?.display_name ?? null);
     } catch (err: unknown) {
@@ -766,4 +790,3 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

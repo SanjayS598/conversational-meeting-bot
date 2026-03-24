@@ -78,6 +78,7 @@ export async function POST(_req: Request, { params }: Params) {
       {
         user_id: user.id,
         selected_voice_profile_id: id,
+        provider_voice_id: providerVoiceId,
       },
       { onConflict: "user_id" }
     );

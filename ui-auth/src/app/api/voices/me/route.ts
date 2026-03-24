@@ -23,7 +23,7 @@ export async function GET() {
       .order("created_at", { ascending: false }),
     supabase
       .from("user_preferences")
-      .select("selected_voice_profile_id")
+      .select("selected_voice_profile_id, provider_voice_id")
       .eq("user_id", user.id)
       .maybeSingle(),
   ]);
@@ -43,7 +43,10 @@ export async function GET() {
     ? null
     : prefsResult.data?.selected_voice_profile_id ?? null;
   const selectedProfile = items.find((item) => item.id === selectedVoiceProfileId) ?? null;
-  const currentVoiceId = process.env.ELEVENLABS_VOICE_ID ?? null;
+  const currentVoiceId = selectedProfile?.provider_voice_id
+    ?? prefsResult.data?.provider_voice_id
+    ?? process.env.ELEVENLABS_VOICE_ID
+    ?? null;
 
   return NextResponse.json({
     items,

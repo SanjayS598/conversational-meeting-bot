@@ -111,7 +111,7 @@ class RecallClient {
           {
             type: 'webhook',
             url: `${webhookUrl}/recall/events`,
-            events: ['transcript.data'],
+            events: ['transcript.data', 'transcript.partial_data'],
           },
         ],
       },
@@ -149,7 +149,7 @@ class RecallClient {
             {
               type: 'webhook',
               url: `${webhookUrl}/recall/events`,
-              events: ['transcript.data'],
+              events: ['transcript.data', 'transcript.partial_data'],
             },
           ],
         },

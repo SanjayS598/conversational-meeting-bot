@@ -7,6 +7,26 @@ interface Params {
   params: Promise<{ id: string }>;
 }
 
+function buildTransportWarning(
+  status: string,
+  startedAt: string | null,
+  transcriptCount: number
+): string | null {
+  if (status !== "joined" || transcriptCount > 0 || !startedAt) return null;
+
+  const startedMs = new Date(startedAt).getTime();
+  if (Number.isNaN(startedMs)) return null;
+
+  const elapsedMs = Date.now() - startedMs;
+  if (elapsedMs < 20_000) return null;
+
+  if (elapsedMs >= 45_000) {
+    return "No transcript has arrived. Recall webhooks or Zoom captions may be unavailable for this meeting.";
+  }
+
+  return "Still waiting for the live transcript source to connect.";
+}
+
 /** GET /api/meetings/:id/live — polled by the live meeting page */
 export async function GET(_req: Request, { params }: Params) {
   const { id } = await params;
@@ -38,6 +58,7 @@ export async function GET(_req: Request, { params }: Params) {
       pending_response: null,
       agent_speaking: false,
       last_event: null,
+      transport_warning: buildTransportWarning(session.status, session.started_at, 0),
     };
 
     return NextResponse.json(state);
@@ -96,6 +117,11 @@ export async function GET(_req: Request, { params }: Params) {
     pending_response: pendingResponse,
     agent_speaking: agentSpeaking,
     last_event: lastEvent,
+    transport_warning: buildTransportWarning(
+      session.status,
+      session.started_at,
+      transcript?.length ?? 0
+    ),
   };
 
   return NextResponse.json(state);

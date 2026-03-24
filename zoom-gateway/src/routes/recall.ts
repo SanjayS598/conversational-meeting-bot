@@ -3,7 +3,7 @@
  *
  * Recall.ai POSTs events to this endpoint when:
  *  - bot.status_change  → bot joined/left/failed
- *  - transcript.data    → a transcription segment is ready
+ *  - transcript.data / transcript.partial_data → a transcription segment is ready
  */
 
 import { Router } from 'express';
@@ -11,6 +11,18 @@ import { sessionManager } from '../services/session-manager';
 import { geminiBrainClient } from '../services/gemini-brain-client';
 
 const router = Router();
+
+function extractTranscriptText(event: RecallEvent): string {
+  const transcript = event.data?.data?.transcript?.trim();
+  if (transcript) return transcript;
+
+  const words: Array<{ text?: string | null }> = event.data?.data?.words ?? [];
+  return words
+    .map((w) => (w.text ?? '').trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+}
 
 router.post('/events', async (req, res) => {
   // Acknowledge immediately so Recall.ai doesn't retry
@@ -43,17 +55,16 @@ router.post('/events', async (req, res) => {
     }
   }
 
-  if (event.event === 'transcript.data') {
+  if (event.event === 'transcript.data' || event.event === 'transcript.partial_data') {
     const botId2: string = event.data?.bot?.id ?? botId;
     const sessionId = sessionManager.getSessionIdByBotId(botId2);
     if (!sessionId) return;
 
-    const words: Array<{ text: string }> = event.data?.data?.words ?? [];
-    const text = words.map((w) => w.text).join(' ').trim();
+    const text = extractTranscriptText(event);
     const speaker: string = event.data?.data?.participant?.name?.trim() || 'Participant';
 
     if (text) {
-      console.log(`[RecallWebhook] transcript session=${sessionId} speaker=${speaker} text="${text}"`);
+      console.log(`[RecallWebhook] ${event.event} session=${sessionId} speaker=${speaker} text="${text}"`);
       geminiBrainClient.submitTranscript(sessionId, text, speaker).catch(console.error);
     }
   }
@@ -68,7 +79,8 @@ interface RecallEvent {
   data: {
     bot?: { id: string; status?: { code: string } };
     data?: {
-      words?: Array<{ text: string }>;
+      transcript?: string | null;
+      words?: Array<{ text?: string | null }>;
       participant?: { name?: string | null };
     };
   };

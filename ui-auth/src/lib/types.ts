@@ -100,4 +100,5 @@ export interface LiveSessionState {
   pending_response: PendingAgentResponse | null;
   agent_speaking: boolean;
   last_event: AgentEvent | null;
+  transport_warning?: string | null;
 }

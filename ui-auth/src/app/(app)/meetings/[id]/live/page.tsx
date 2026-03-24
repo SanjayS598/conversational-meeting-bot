@@ -250,6 +250,13 @@ export default function LiveMeetingPage({ params }: Props) {
         </div>
       )}
 
+      {state?.transport_warning && !error && (
+        <div className="flex items-center gap-2 text-sm text-amber-300 bg-amber-950/30 border-b border-amber-700/30 px-6 py-2.5">
+          <AlertCircle className="w-4 h-4" />
+          {state.transport_warning}
+        </div>
+      )}
+
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Transcript / Notes / Actions panel */}

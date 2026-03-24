@@ -30,7 +30,6 @@ const PREVIEW_TEXT = "Hello! This is a preview of how I will sound during your m
 interface VoicesResponse {
   items: VoiceProfile[];
   selected_voice_profile_id: string | null;
-  current_voice_profile_id: string | null;
   current_voice_id: string | null;
 }
 

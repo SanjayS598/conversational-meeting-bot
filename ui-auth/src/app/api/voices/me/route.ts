@@ -51,7 +51,6 @@ export async function GET() {
   return NextResponse.json({
     items,
     selected_voice_profile_id: selectedVoiceProfileId,
-    current_voice_profile_id: selectedProfile?.id ?? null,
     current_voice_id: currentVoiceId,
   });
 }

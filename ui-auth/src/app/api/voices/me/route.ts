@@ -45,7 +45,6 @@ export async function GET() {
   const selectedProfile = items.find((item) => item.id === selectedVoiceProfileId) ?? null;
   const currentVoiceId = selectedProfile?.provider_voice_id
     ?? prefsResult.data?.provider_voice_id
-    ?? process.env.ELEVENLABS_VOICE_ID
     ?? null;
 
   return NextResponse.json({

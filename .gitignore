@@ -1,0 +1,15 @@
+# macOS / editor noise
+.DS_Store
+
+# root env files
+.env
+.env.*
+!.env.example
+
+# local Python environments
+.venv/
+venv/
+
+# temporary / debug artifacts
+.debug/
+*.log

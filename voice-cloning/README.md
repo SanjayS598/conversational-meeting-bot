@@ -160,7 +160,7 @@ Authorization: Bearer <INTERNAL_BACKEND_AUTH_TOKEN>
 Content-Type: application/json
 ```
 
-If `INTERNAL_BACKEND_AUTH_TOKEN` is blank, auth is skipped for local setup.
+`INTERNAL_BACKEND_AUTH_TOKEN` must be set. The service now fails closed if it is missing.
 
 ### `POST /voices/enroll`
 

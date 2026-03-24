@@ -175,7 +175,7 @@ const g=id=>document.getElementById(id);
 const cfgV=id=>g(id).value.trim();
 const base=()=>cfgV('cfgUrl').replace(/\/$/,'');
 const wsBase=()=>base().replace(/^http/,'ws');
-const hdrs=()=>({'Content-Type':'application/json','X-Service-Token':cfgV('cfgToken')});
+const hdrs=()=>({'Content-Type':'application/json','x-internal-token':cfgV('cfgToken')});
 
 function openCfg(){g('cfgOverlay').classList.add('open')}
 function closeCfg(){g('cfgOverlay').classList.remove('open')}

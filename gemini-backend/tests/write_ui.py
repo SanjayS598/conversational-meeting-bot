@@ -180,7 +180,7 @@ const g=id=>document.getElementById(id);
 const cfgV=id=>g(id).value.trim();
 const base=()=>cfgV('cfgUrl').replace(/\\/$/,'');
 const wsBase=()=>base().replace(/^http/,'ws');
-const hdrs=()=>({'Content-Type':'application/json','X-Service-Token':cfgV('cfgToken')});
+const hdrs=()=>({'Content-Type':'application/json','x-internal-token':cfgV('cfgToken')});
 
 function openCfg(){g('cfgOverlay').classList.add('open')}
 function closeCfg(){g('cfgOverlay').classList.remove('open')}
@@ -350,6 +350,6 @@ function clearAll(){
 </html>
 """
 
-out = pathlib.Path('/Users/isham/project/HooHacksv2/conversational-meeting-bot/gemini-backend/tests/ui_test.html')
+out = pathlib.Path(__file__).with_name('ui_test.html')
 out.write_text(HTML, encoding='utf-8')
 print(f"Written {out.stat().st_size} bytes, {HTML.count(chr(10))} lines")

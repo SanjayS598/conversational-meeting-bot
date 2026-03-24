@@ -1,6 +1,6 @@
 # Zoom Meeting Gateway
 
-Transport layer for AI meeting participation. Joins a Zoom meeting via a URL + optional passcode, streams inbound audio to the Gemini Intelligence Service, and injects synthesised speech from the ElevenLabs Voice Runtime back into the meeting.
+Transport layer for AI meeting participation. Joins a Zoom meeting through Recall.ai, forwards transcript events to the Gemini Intelligence Service, and injects synthesised speech from the voice runtime back into the meeting.
 
 ---
 
@@ -47,20 +47,9 @@ No Zoom SDK keys are needed: the gateway joins via the Zoom **web client** (brow
   "user_id": "user-uuid",                              // required
   "meeting_url": "https://zoom.us/j/1234567890",       // required
   "passcode": "123456",                                // optional numeric passcode
-  "bot_display_name": "AI Assistant"                   // optional
+  "bot_display_name": "Clairo"                         // optional
 }
 ```
-
-### WebSockets (auth via `?token=<INTERNAL_SERVICE_SECRET>`)
-
-| Path | Direction | Consumer |
-|---|---|---|
-| `WS /sessions/:id/audio-in` | Gateway → client | Gemini Intelligence Service |
-| `WS /sessions/:id/audio-out` | Client → Gateway | ElevenLabs Voice Runtime |
-
-**Audio wire format**
-- `audio-in` packets: `[8 bytes BigInt64LE timestamp ms]` + `[N × 2 bytes int16 PCM, mono, 16 kHz]`
-- `audio-out` frames: raw `int16 PCM, little-endian, 16 kHz mono`
 
 ### Canonical session events (emitted internally via `gatewayEmitter`)
 
@@ -73,13 +62,15 @@ No Zoom SDK keys are needed: the gateway joins via the Zoom **web client** (brow
 ```
 Control Backend  ──POST /sessions/start──►  Zoom Gateway
                                                 │
-                                    Puppeteer Chrome joins Zoom web client
+                                      Recall.ai joins the meeting
                                                 │
-Gemini Service  ◄──WS /audio-in (PCM)──────────┤
+Recall transcript webhooks ───────────────► /recall/events
                                                 │
-ElevenLabs      ───WS /audio-out (PCM)─────────►│
+Gemini Service  ◄──── transcript segments ─────┤
                                                 │
-                                    Audio injected into meeting mic
+Voice Runtime   ───── synthesized speech ─────►│
+                                                │
+                                     Audio injected back into meeting
 ```
 
 ---
@@ -214,4 +205,3 @@ Pushes state/events back to the Control Backend for UI display
 
 Definition of done:
 A running service that can join a Zoom meeting, stream incoming audio to another backend service, accept generated speech audio back, and expose stable session APIs for the rest of the stack.
-

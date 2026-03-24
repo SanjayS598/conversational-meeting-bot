@@ -10,7 +10,7 @@ Tests every endpoint in order:
   6. POST /brain/sessions/{id}/respond  (if a candidate is pending)
 
 Prerequisites:
-  - gemini-backend is running on port 3001  (make dev)
+  - gemini-backend is running on port 3002  (make dev)
   - Redis is running on port 6379           (make redis  OR  docker-compose up redis)
   - Mock services running on 4000/5000      (make mock)
 
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 import struct
 import sys
 import uuid
@@ -29,8 +30,9 @@ import uuid
 import httpx
 import websockets
 
-BASE_URL = "http://localhost:3001"
-WS_BASE = "ws://localhost:3001"
+BASE_URL = os.getenv("GEMINI_TEST_BASE_URL", "http://localhost:3002")
+WS_BASE = BASE_URL.replace("http://", "ws://").replace("https://", "wss://")
+INTERNAL_TOKEN = os.getenv("INTERNAL_SERVICE_TOKEN", "")
 
 # ─── PCM audio generation ─────────────────────────────────────────────────────
 
@@ -75,8 +77,13 @@ def fail(msg: str) -> None:
 async def run() -> None:
     session_id = str(uuid.uuid4())
     print(f"\nSmoke test — session_id: {session_id}\n")
+    auth_headers = {"Authorization": f"Bearer {INTERNAL_TOKEN}"} if INTERNAL_TOKEN else {}
 
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as client:
+    async with httpx.AsyncClient(
+        base_url=BASE_URL,
+        timeout=30.0,
+        headers=auth_headers,
+    ) as client:
 
         # ── 1. Health check ────────────────────────────────────────────────────
         print("1. Health check")
@@ -122,7 +129,8 @@ async def run() -> None:
         num_chunks = len(pcm_audio) // chunk_size
         print(f"     Sending {len(pcm_audio):,} bytes in {num_chunks} chunks...")
 
-        ws_url = f"{WS_BASE}/brain/sessions/{session_id}/audio"
+        token_query = f"?token={INTERNAL_TOKEN}" if INTERNAL_TOKEN else ""
+        ws_url = f"{WS_BASE}/brain/sessions/{session_id}/audio{token_query}"
         audio_ok = False
         try:
             async with websockets.connect(ws_url, ping_interval=None) as ws:

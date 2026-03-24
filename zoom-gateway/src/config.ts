@@ -22,7 +22,7 @@ export const config = {
   geminiServiceUrl: env('GEMINI_SERVICE_URL', 'http://localhost:3002'),
   controlBackendUrl: env('CONTROL_BACKEND_URL', 'http://localhost:3000'),
   voiceServiceUrl: env('VOICE_SERVICE_URL', 'http://localhost:8083'),
-  botDisplayName: env('BOT_DISPLAY_NAME', 'AI Assistant'),
+  botDisplayName: env('BOT_DISPLAY_NAME', 'Clairo'),
   maxConcurrentSessions: parseInt(env('MAX_CONCURRENT_SESSIONS', '3'), 10),
   nodeEnv: env('NODE_ENV', 'development'),
   // Recall.ai cloud bot

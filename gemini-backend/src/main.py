@@ -63,14 +63,15 @@ def create_app() -> FastAPI:
         version="1.0.0",
     )
 
-    # CORS — restrict in production to known origins
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Internal service by default: only enable browser CORS when origins are explicit.
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     # ── Startup ───────────────────────────────────────────────────────────────
 

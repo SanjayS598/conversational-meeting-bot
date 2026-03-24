@@ -24,6 +24,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel
 
+from ..auth import require_internal_auth
 from ..clients.backend import BackendClient, BackendClientError
 from ..clients.voice import VoiceClient, VoiceClientError
 from ..pipeline.audio_processor import AudioProcessor
@@ -47,7 +48,11 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/brain/sessions", tags=["brain"])
+router = APIRouter(
+    prefix="/brain/sessions",
+    tags=["brain"],
+    dependencies=[Depends(require_internal_auth)],
+)
 
 _caption_buffers: dict[str, dict[str, str]] = {}
 

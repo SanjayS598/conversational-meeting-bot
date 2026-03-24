@@ -10,11 +10,13 @@ const EVENTS_DIR = path.join(STORAGE_DIR, "events");
 
 loadEnvFile(path.join(ROOT_DIR, ".env"));
 
+const internalBackendAuthToken = requireNonEmptyEnv("INTERNAL_BACKEND_AUTH_TOKEN");
+
 export const config = {
   port: Number(process.env.PORT || 8083),
   nodeEnv: process.env.NODE_ENV || "development",
   elevenLabsApiKey: process.env.ELEVENLABS_API_KEY || "",
-  internalBackendAuthToken: process.env.INTERNAL_BACKEND_AUTH_TOKEN || "",
+  internalBackendAuthToken,
   controlBackendBaseUrl: process.env.CONTROL_BACKEND_BASE_URL || "",
   meetingGatewayBaseUrl: process.env.MEETING_GATEWAY_BASE_URL || "",
   defaultTtsModel: process.env.DEFAULT_TTS_MODEL || "eleven_flash_v2_5",
@@ -31,6 +33,14 @@ export const config = {
     events: EVENTS_DIR
   }
 };
+
+function requireNonEmptyEnv(key) {
+  const value = (process.env[key] || "").trim();
+  if (!value) {
+    throw new Error(`Missing required non-empty env var: ${key}`);
+  }
+  return value;
+}
 
 export function ensureStorageLayout() {
   for (const dir of Object.values(config.paths)) {

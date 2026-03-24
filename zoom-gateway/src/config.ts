@@ -7,10 +7,18 @@ function env(key: string, fallback?: string): string {
   return val;
 }
 
+function requiredNonEmptyEnv(key: string): string {
+  const val = env(key).trim();
+  if (!val) {
+    throw new Error(`Missing required non-empty env var: ${key}`);
+  }
+  return val;
+}
+
 export const config = {
   port: parseInt(env('PORT', '3001'), 10),
   headless: env('HEADLESS', 'true').toLowerCase() !== 'false',
-  internalServiceSecret: env('INTERNAL_SERVICE_SECRET', ''),
+  internalServiceSecret: requiredNonEmptyEnv('INTERNAL_SERVICE_SECRET'),
   geminiServiceUrl: env('GEMINI_SERVICE_URL', 'http://localhost:3002'),
   controlBackendUrl: env('CONTROL_BACKEND_URL', 'http://localhost:3000'),
   voiceServiceUrl: env('VOICE_SERVICE_URL', 'http://localhost:8083'),

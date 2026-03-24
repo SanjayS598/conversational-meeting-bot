@@ -74,6 +74,18 @@ class Settings(BaseSettings):
     # ── Service ────────────────────────────────────────────────────────────────
     port: int = Field(default=3002, description="HTTP listen port")
     log_level: str = Field(default="info", description="Logging level")
+    cors_allowed_origins: str = Field(
+        default="",
+        description="Comma-separated origins allowed for browser access; leave blank for internal-only service",
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
 
 
 # Module-level singleton

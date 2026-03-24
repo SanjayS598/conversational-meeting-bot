@@ -14,15 +14,20 @@ import asyncio
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
+from ..auth import require_internal_auth
 from ..voice.extractor import extract_text
 from ..voice.preloader import prepare
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/voice", tags=["voice"])
+router = APIRouter(
+    prefix="/voice",
+    tags=["voice"],
+    dependencies=[Depends(require_internal_auth)],
+)
 
 
 class PrepareResponse(BaseModel):

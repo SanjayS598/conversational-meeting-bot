@@ -158,10 +158,6 @@ server.listen(config.port, () => {
 });
 
 function authorize(req) {
-  if (!config.internalBackendAuthToken) {
-    return true;
-  }
-
   const header = req.headers.authorization || "";
   return header === `Bearer ${config.internalBackendAuthToken}`;
 }

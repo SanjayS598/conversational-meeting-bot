@@ -134,14 +134,26 @@ STRICT RULES:
         return "Sorry, could you say that again?"
 
 
-def generate_greeting(display_name: str, context: str) -> str:
-    """Generate an unrestricted greeting using the sample zoom-agent prompt style."""
+def generate_greeting(display_name: str, context: str, sender_name: str | None = None) -> str:
+    """Generate a greeting prefixed with the hardcoded sender intro."""
+    # Build the mandatory opening line
+    if sender_name:
+        intro_line = (
+            f"Hi there, I am an AI agent sent by {sender_name} "
+            f"to represent {sender_name} at this meeting."
+        )
+    else:
+        intro_line = f"Hi there, I'm {display_name}, an AI agent."
+
     prompt = f"""You are about to join a Zoom meeting as {display_name}.
 
 Here is your full context and materials for the meeting:
 {context}
 
-Write a natural, warm introduction you would say when joining.
+Continue the introduction AFTER this opening sentence (do NOT repeat it):
+"{intro_line}"
+
+Write just the remainder of the introduction — what comes after that sentence.
 Reference the actual content/topic you're here to discuss.
 Sound human and conversational — NOT robotic.
 Do not artificially shorten yourself; give the full introduction naturally.
@@ -152,7 +164,8 @@ Just the spoken words, no stage directions."""
             contents=[{"role": "user", "parts": [{"text": prompt}]}],
             config=types.GenerateContentConfig(temperature=0.8, max_output_tokens=1024),
         )
-        return response.text.strip()
+        continuation = response.text.strip()
+        return f"{intro_line} {continuation}" if continuation else intro_line
     except Exception as exc:
         logger.error("Greeting generation failed: %s", exc)
-        return f"Hi everyone, I'm {display_name}. Happy to be here."
+        return intro_line

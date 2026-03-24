@@ -129,6 +129,8 @@ export default function NewMeetingPage() {
       fd.append("display_name", botDisplayName.trim());
       fd.append("personal_notes", prepNotes);
       files.forEach((f) => fd.append("files", f));
+      const providerVoiceId = getStoredProviderVoiceId();
+      if (providerVoiceId) fd.append("provider_voice_id", providerVoiceId);
 
       const res = await fetch("/api/voice/prepare", { method: "POST", body: fd });
       const data = await res.json();

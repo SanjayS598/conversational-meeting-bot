@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MeetBot — AI Meeting Assistant",
-  description: "AI-powered meeting assistant powered by Gemini and ElevenLabs",
+  title: "Clairo — AI Meeting Assistant",
+  description: "Clairo is an AI meeting assistant powered by Gemini and ElevenLabs",
 };
 
 export default function RootLayout({

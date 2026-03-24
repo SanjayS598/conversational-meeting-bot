@@ -37,6 +37,7 @@ async def prepare_agent(
     display_name: Annotated[str, Form()],
     personal_notes: Annotated[str, Form()] = "",
     provider_voice_id: Annotated[str | None, Form()] = None,
+    sender_name: Annotated[str | None, Form()] = None,
     files: Annotated[list[UploadFile], File()] = [],
 ) -> PrepareResponse:
     """
@@ -93,6 +94,7 @@ async def prepare_agent(
         personal_notes=personal_notes,
         documents=documents,
         provider_voice_id=provider_voice_id,
+        sender_name=sender_name.strip() if sender_name else None,
     )
 
     return PrepareResponse(

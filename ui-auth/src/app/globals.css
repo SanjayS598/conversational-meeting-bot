@@ -3,11 +3,22 @@
 :root {
   --background: #080e1c;
   --foreground: #e2e8f0;
-  --brand-cyan: #6DD8F0;
-  --brand-purple: #9B7FD4;
-  --brand-primary: #7442C8;
+  --brand-cyan: #6dd8f0;
+  --brand-purple: #9b7fd4;
+  --brand-primary: #7442c8;
   --card-bg: #0d1628;
   --input-bg: #111828;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  background: var(--background);
 }
 
 body {
@@ -16,19 +27,19 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: #0a1020;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #2a3452;
   border-radius: 3px;
 }
 
-/* Transcript animation */
 @keyframes slide-in {
   from {
     opacity: 0;
@@ -44,38 +55,405 @@ body {
   animation: slide-in 0.25s ease-out;
 }
 
-/* Pulse for live indicator */
 @keyframes live-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 .live-pulse {
   animation: live-pulse 1.5s ease-in-out infinite;
 }
 
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(26px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@keyframes orb-float {
+  0%, 100% {
+    transform: translate3d(-50%, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-50%, 24px, 0) scale(1.08);
+  }
+}
+
+@keyframes orb-float-delayed {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-18px, 26px, 0) scale(1.06);
+  }
+}
+
+@keyframes orb-float-slow {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(20px, -18px, 0);
+  }
+}
+
+@keyframes drift-card {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes mesh-drift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(22px, -18px, 0) scale(1.08);
+  }
+}
+
+@keyframes mesh-drift-reverse {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-18px, 20px, 0) scale(0.94);
+  }
+}
+
+@keyframes halo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.35);
+  }
+  50% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 8px rgba(52, 211, 153, 0);
+  }
+}
+
+@keyframes logo-breathe {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    filter: drop-shadow(0 0 22px rgba(109, 216, 240, 0.18));
+  }
+  50% {
+    transform: scale(1.04) rotate(1deg);
+    filter: drop-shadow(0 0 34px rgba(109, 216, 240, 0.28));
+  }
+}
+
+@keyframes logo-halo {
+  0%, 100% {
+    transform: scale(0.94);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.82;
+  }
+}
+
+@keyframes orbit-ring {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes orbit-ring-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes logo-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 0.88;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes float-card {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-12px) rotate(-1deg);
+  }
+}
+
+@keyframes float-card-delayed {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(14px) rotate(1deg);
+  }
+}
+
+@keyframes slow-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes reverse-spin {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes shimmer-panel {
+  0%, 100% {
+    box-shadow: inset 0 0 0 0 rgba(109, 216, 240, 0);
+  }
+  50% {
+    box-shadow: inset 0 0 60px 0 rgba(109, 216, 240, 0.035);
+  }
+}
+
+@keyframes particle-float {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.9);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.85;
+  }
+  50% {
+    transform: translate3d(24px, -42px, 0) scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-18px, -92px, 0) scale(0.82);
+    opacity: 0;
+  }
+}
+
+@keyframes pulse-core {
+  0%, 100% {
+    transform: scale(0.92);
+    opacity: 0.6;
+    box-shadow: 0 0 0 0 rgba(109, 216, 240, 0.18);
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+    box-shadow: 0 0 0 18px rgba(109, 216, 240, 0);
+  }
+}
+
+.reveal {
+  opacity: 0;
+  animation: reveal-up 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.orb-float {
+  animation: orb-float 12s ease-in-out infinite;
+}
+
+.orb-float-delayed {
+  animation: orb-float-delayed 16s ease-in-out infinite;
+}
+
+.orb-float-slow {
+  animation: orb-float-slow 18s ease-in-out infinite;
+}
+
+.drift-card {
+  animation: drift-card 8s ease-in-out infinite;
+}
+
+.mesh-drift {
+  animation: mesh-drift 14s ease-in-out infinite;
+}
+
+.mesh-drift-reverse {
+  animation: mesh-drift-reverse 17s ease-in-out infinite;
+}
+
+.halo-spin {
+  animation: halo-spin 24s linear infinite;
+}
+
+.live-dot {
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+.panel-rise {
+  opacity: 0;
+  animation: reveal-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.orbit-chip {
+  animation: drift-card 9s ease-in-out infinite;
+}
+
+.shimmer-row {
+  position: relative;
+  overflow: hidden;
+}
+
+.logo-breathe {
+  animation: logo-breathe 6.2s ease-in-out infinite;
+}
+
+.logo-halo {
+  animation: logo-halo 5.5s ease-in-out infinite;
+  background: radial-gradient(
+    circle at center,
+    rgba(109, 216, 240, 0.2),
+    rgba(116, 66, 200, 0.12),
+    transparent 68%
+  );
+}
+
+.orbit-ring {
+  animation: orbit-ring 18s linear infinite;
+}
+
+.orbit-ring-delayed {
+  animation: orbit-ring-reverse 24s linear infinite;
+}
+
+.orbit-ring-slow {
+  animation: orbit-ring 32s linear infinite;
+}
+
+.logo-pulse {
+  animation: logo-pulse 7.5s ease-in-out infinite;
+}
+
+.float-card {
+  animation: float-card 8.5s ease-in-out infinite;
+}
+
+.float-card-delayed {
+  animation: float-card-delayed 9.5s ease-in-out infinite;
+}
+
+.slow-spin {
+  animation: slow-spin 30s linear infinite;
+}
+
+.reverse-spin {
+  animation: reverse-spin 34s linear infinite;
+}
+
+.hero-logo-shell {
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.core-shell {
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.pulse-core {
+  animation: pulse-core 4.6s ease-in-out infinite;
+}
+
+.particle-dot {
+  animation-name: particle-float;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.shimmer-panel {
+  animation: shimmer-panel 6s ease-in-out infinite;
+}
+
+.shimmer-row::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.08),
+    transparent
+  );
+  animation: shimmer-sweep 4.8s ease-in-out infinite;
+}
+
+@keyframes shimmer-sweep {
+  0%, 100% {
+    transform: translateX(-120%);
+  }
+  45%, 55% {
+    transform: translateX(120%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .orb-float,
+  .orb-float-delayed,
+  .orb-float-slow,
+  .drift-card,
+  .mesh-drift,
+  .mesh-drift-reverse,
+  .halo-spin,
+  .live-dot,
+  .panel-rise,
+  .orbit-chip,
+  .logo-breathe,
+  .logo-halo,
+  .orbit-ring,
+  .orbit-ring-delayed,
+  .orbit-ring-slow,
+  .logo-pulse,
+  .float-card,
+  .float-card-delayed,
+  .slow-spin,
+  .reverse-spin,
+  .shimmer-panel,
+  .pulse-core,
+  .particle-dot,
+  .shimmer-row::after {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }

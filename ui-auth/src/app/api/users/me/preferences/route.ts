@@ -20,7 +20,8 @@ export async function GET() {
     // Return sane defaults if no record exists yet
     return NextResponse.json({
       user_id: user.id,
-      agent_display_name: "MeetBot",
+      user_full_name: null,
+      agent_display_name: "Clairo",
       mode: "suggest_replies",
       tone: "professional",
       speak_threshold: 0.75,
@@ -42,7 +43,7 @@ export async function PUT(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
-  const { agent_display_name, mode, tone, speak_threshold, default_meeting_provider, selected_voice_profile_id } =
+  const { user_full_name, agent_display_name, mode, tone, speak_threshold, default_meeting_provider, selected_voice_profile_id } =
     body;
 
   const { data, error } = await supabase
@@ -50,6 +51,7 @@ export async function PUT(req: Request) {
     .upsert(
       {
         user_id: user.id,
+        user_full_name: user_full_name ?? null,
         agent_display_name,
         mode,
         tone,
@@ -78,6 +80,7 @@ export async function PATCH(req: Request) {
 
   // Build the patch object with only recognized, safe columns
   const patch: Record<string, unknown> = { user_id: user.id };
+  if (body.user_full_name !== undefined) patch.user_full_name = body.user_full_name;
   if (body.provider_voice_id !== undefined) patch.provider_voice_id = body.provider_voice_id;
   if (body.selected_voice_profile_id !== undefined) patch.selected_voice_profile_id = body.selected_voice_profile_id;
   if (body.agent_display_name !== undefined) patch.agent_display_name = body.agent_display_name;

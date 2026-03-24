@@ -31,6 +31,24 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
 
+    // Inject the authenticated user's real name so the greeting can reference
+    // who sent the agent ("I am an AI agent sent by <sender_name>")
+    // 1. Try user_full_name from preferences (most reliable — user-entered)
+    // 2. Fall back to OAuth metadata, then email prefix
+    const { data: prefs } = await supabase
+      .from("user_preferences")
+      .select("user_full_name")
+      .eq("user_id", user.id)
+      .single();
+
+    const senderName: string =
+      (prefs?.user_full_name as string | undefined) ||
+      (user.user_metadata?.full_name as string | undefined) ||
+      (user.user_metadata?.name as string | undefined) ||
+      user.email?.split("@")[0] ||
+      "your host";
+    formData.set("sender_name", senderName);
+
     const upstream = await fetch(`${brainUrl}/voice/prepare`, {
       method: "POST",
       headers: {

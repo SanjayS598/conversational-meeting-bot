@@ -10,6 +10,7 @@ import {
   Plus,
   Calendar,
   LayoutDashboard,
+  ArrowLeft,
 } from "lucide-react";
 import type { MeetingSession } from "@/lib/types";
 import clsx from "clsx";
@@ -98,13 +99,22 @@ export default async function DashboardPage() {
             Welcome back, {user.email?.split("@")[0]}!
           </p>
         </div>
-        <Link
-          href="/meetings/new"
-          className="flex items-center gap-2 bg-[#3B82F6] hover:bg-[#4F94F8] text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Meeting
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            className="flex items-center gap-2 border border-slate-700/80 bg-[#0d1628] hover:border-slate-600 hover:bg-slate-800/70 text-slate-200 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Return to Landing
+          </Link>
+          <Link
+            href="/meetings/new"
+            className="flex items-center gap-2 bg-[#3B82F6] hover:bg-[#4F94F8] text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            New Meeting
+          </Link>
+        </div>
       </div>
 
       {/* Active meetings */}

@@ -60,6 +60,7 @@ async def prepare(
     personal_notes: str,
     documents: list[tuple[str, str]],  # [(filename, extracted_text), ...]
     provider_voice_id: str | None = None,
+    sender_name: str | None = None,
 ) -> PrepResult:
     """Build context, pre-generate greeting text and audio.
 
@@ -78,10 +79,11 @@ async def prepare(
 
     # Pre-generate greeting text
     try:
-        greeting = generate_greeting(display_name, context)
+        greeting = generate_greeting(display_name, context, sender_name=sender_name)
     except Exception as exc:
         logger.warning("Greeting text generation failed: %s", exc)
-        greeting = f"Hi everyone, I'm {display_name}. Ready to help."
+        intro = f"Hi there, I am an AI agent sent by {sender_name} to represent {display_name} at this meeting. " if sender_name else ""
+        greeting = f"{intro}I'm {display_name}. Ready to help."
 
     _prep_greetings[prep_id] = greeting
 

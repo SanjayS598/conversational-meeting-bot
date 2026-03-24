@@ -14,6 +14,7 @@ export type VoiceProfileStatus = "pending" | "ready" | "failed";
 
 export interface UserPreferences {
   user_id: string;
+  user_full_name?: string | null;
   agent_display_name: string;
   mode: AgentMode;
   tone: string;

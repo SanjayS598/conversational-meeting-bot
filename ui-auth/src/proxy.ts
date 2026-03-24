@@ -35,8 +35,9 @@ export async function proxy(request: NextRequest) {
   // /api/internal is protected by INTERNAL_SERVICE_TOKEN Bearer auth, not Supabase sessions
   const publicPaths = ["/login", "/auth/callback", "/api/internal"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
+  const isRootLanding = pathname === "/";
 
-  if (!user && !isPublic) {
+  if (!user && !isPublic && !isRootLanding) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

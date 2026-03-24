@@ -27,6 +27,7 @@ const TONES = ["professional", "casual", "concise", "detailed", "friendly"];
 
 export default function AgentSettingsPage() {
   const [prefs, setPrefs] = useState<Partial<UserPreferences>>({
+    user_full_name: "",
     agent_display_name: "",
     mode: "suggest_replies",
     tone: "professional",
@@ -43,7 +44,7 @@ export default function AgentSettingsPage() {
       .then((r) => r.json())
       .then((data) => {
         if (data && !data.error) {
-          if (data.agent_display_name === "MeetBot") data.agent_display_name = "";
+          if (data.agent_display_name === "Clairo") data.agent_display_name = "";
           setPrefs(data);
         }
       })
@@ -105,6 +106,25 @@ export default function AgentSettingsPage() {
             Settings saved successfully.
           </div>
         )}
+
+        {/* Your Name */}
+        <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">
+          <label className="block text-sm font-medium text-slate-300 mb-3">
+            Your Name
+          </label>
+          <input
+            type="text"
+            value={prefs.user_full_name ?? ""}
+            onChange={(e) =>
+              setPrefs((p) => ({ ...p, user_full_name: e.target.value }))
+            }
+            className="w-full bg-[#111828] border border-slate-700/80 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-[#6DD8F0]/60 focus:border-transparent transition"
+            placeholder="e.g. Sanjay"
+          />
+          <p className="text-xs text-slate-500 mt-1.5">
+            Used in the agent's greeting: "I am an AI agent sent by <strong>you</strong>…"
+          </p>
+        </div>
 
         {/* Display name */}
         <div className="bg-[#0d1628] border border-slate-800/60 rounded-2xl p-5">

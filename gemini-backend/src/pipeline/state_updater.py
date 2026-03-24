@@ -28,8 +28,10 @@ logger = logging.getLogger(__name__)
 # How many recent segments to include in the rolling transcript context
 ROLLING_WINDOW = 20
 
-# Debounce delay before triggering a conversational response (seconds)
-CONV_DEBOUNCE_S = 1.2
+# Debounce delay before triggering a conversational response (seconds).
+# Lower is snappier; 0.8s gives the user time to finish a sentence without
+# the bot interrupting on brief mid-sentence pauses.
+CONV_DEBOUNCE_S = 0.8
 
 # Per-session debounce task handle
 _debounce_tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
@@ -82,6 +84,15 @@ class StateUpdater:
                 "Failed to push transcript segment session_id=%s: %s", session_id, exc
             )
 
+        # ── Conversational AI: debounce started immediately ───────────────────
+        # Trigger the conversational debounce NOW, before the slow LangGraph
+        # notes pipeline, so the response latency is debounce-time only (1.2s)
+        # instead of debounce + Gemini notes call.
+        recent_for_conv = session.transcript[-(ROLLING_WINDOW - 1):]
+        if not recent_for_conv or recent_for_conv[-1].segment_id != new_segment.segment_id:
+            recent_for_conv = [*recent_for_conv, new_segment]
+        self._maybe_trigger_conv_response(session_id, new_segment, recent_for_conv)
+
         # ── Slow path: Gemini notes update ────────────────────────────────────
         # Build rolling transcript text including the segment that just arrived.
         recent = session.transcript[-(ROLLING_WINDOW - 1):] if ROLLING_WINDOW > 1 else []
@@ -112,8 +123,7 @@ class StateUpdater:
             logger.error(
                 "LangGraph pipeline failed session_id=%s: %s", session_id, exc
             )
-            # Keep conversational follow-ups alive even if notes generation fails.
-            self._maybe_trigger_conv_response(session_id, new_segment, recent)
+            # Conversational debounce was already triggered above; nothing extra to do.
             return
 
         # ── Persist AI results to Redis ────────────────────────────────────────
@@ -163,11 +173,6 @@ class StateUpdater:
                     session_id,
                     exc,
                 )
-
-        # ── Conversational AI: debounced response ─────────────────────────────
-        # Only triggers if the session has the conversational module active
-        # (i.e. prep_id + bot_display_name were supplied at session start).
-        self._maybe_trigger_conv_response(session_id, new_segment, recent)
 
     def _maybe_trigger_conv_response(
         self,

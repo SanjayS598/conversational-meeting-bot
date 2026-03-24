@@ -19,6 +19,9 @@ export class GeminiBrainClient {
     opts: {
       meetingObjective?: string;
       prepNotes?: string;
+      mode?: 'notes_only' | 'suggest' | 'auto_speak';
+      userTone?: string;
+      speakThreshold?: number;
       prepId?: string;
       botDisplayName?: string;
       voiceProfileId?: string;
@@ -31,7 +34,11 @@ export class GeminiBrainClient {
         {
           meeting_objective: opts.meetingObjective ?? 'Attend and take notes for this meeting',
           prep_notes: opts.prepNotes ?? '',
-          mode: 'notes_only',
+          mode: opts.mode ?? 'suggest',
+          user_tone: opts.userTone ?? 'professional',
+          response_policy: {
+            min_confidence: opts.speakThreshold ?? 0.75,
+          },
           prep_id: opts.prepId ?? null,
           bot_display_name: opts.botDisplayName ?? null,
           voice_profile_id: opts.voiceProfileId ?? null,

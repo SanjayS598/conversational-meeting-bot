@@ -6,6 +6,24 @@ interface Params {
   params: Promise<{ id: string }>;
 }
 
+function mapAgentModeToBrainMode(mode?: string): "notes_only" | "suggest" | "auto_speak" {
+  switch (mode) {
+    case "notes_only":
+      return "notes_only";
+    case "auto_speak":
+      return "auto_speak";
+    case "suggest_replies":
+    default:
+      return "suggest";
+  }
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
 /** POST /api/meetings/:id/start */
 export async function POST(_req: Request, { params }: Params) {
   const { id } = await params;
@@ -75,6 +93,14 @@ export async function POST(_req: Request, { params }: Params) {
     provider_voice_id = vp?.provider_voice_id ?? undefined;
   }
 
+  const agentMode = mapAgentModeToBrainMode(prefs?.mode);
+  const userTone = normalizeOptionalString(prefs?.tone) ?? "professional";
+  const speakThreshold =
+    typeof prefs?.speak_threshold === "number" ? prefs.speak_threshold : 0.75;
+  const agentDisplayName =
+    normalizeOptionalString(bot_display_name) ??
+    normalizeOptionalString(prefs?.agent_display_name);
+
   // Tell the Meeting Gateway to join
   const gwUrl = process.env.MEETING_GATEWAY_URL ?? "http://localhost:3001";
   let gatewayResponse: Response;
@@ -85,13 +111,16 @@ export async function POST(_req: Request, { params }: Params) {
         meeting_session_id: id,
         user_id: user.id,
         meeting_url: session.meeting_url,
-        bot_display_name: bot_display_name ?? prefs?.agent_display_name ?? undefined,
+        bot_display_name: agentDisplayName,
         passcode,
         meeting_objective,
         prep_notes,
         prep_id,
         voice_profile_id,
         provider_voice_id,
+        mode: agentMode,
+        user_tone: userTone,
+        speak_threshold: speakThreshold,
       }),
     });
   } catch (err: unknown) {
@@ -120,7 +149,12 @@ export async function POST(_req: Request, { params }: Params) {
   await supabase.from("agent_events").insert({
     session_id: id,
     event_type: "session.start_requested",
-    payload_json: { initiated_by: user.id, mode: "notes_only" },
+    payload_json: {
+      initiated_by: user.id,
+      mode: agentMode,
+      user_tone: userTone,
+      speak_threshold: speakThreshold,
+    },
   });
 
   return NextResponse.json({ ok: true });

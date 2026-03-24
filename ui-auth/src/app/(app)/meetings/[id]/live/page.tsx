@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { MarkdownDocument } from "@/components/MarkdownDocument";
+import { MarkdownDocument, markdownToPlainText } from "@/components/MarkdownDocument";
 import {
   Mic,
   Square,
@@ -14,6 +14,8 @@ import {
   FileText,
   Bot,
   Volume2,
+  Send,
+  X,
 } from "lucide-react";
 import clsx from "clsx";
 import type { LiveSessionState, TranscriptSegment, ActionItem } from "@/lib/types";
@@ -46,6 +48,7 @@ export default function LiveMeetingPage({ params }: Props) {
   const [state, setState] = useState<LiveSessionState | null>(null);
   const [tab, setTab] = useState<"transcript" | "notes" | "actions">("transcript");
   const [stopping, setStopping] = useState(false);
+  const [responding, setResponding] = useState<"approve" | "reject" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -160,6 +163,32 @@ export default function LiveMeetingPage({ params }: Props) {
     }
   }
 
+  async function handlePendingResponse(approved: boolean) {
+    if (!sessionId || responding) return;
+    setResponding(approved ? "approve" : "reject");
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/meetings/${sessionId}/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? body.detail ?? "Failed to process suggestion");
+      }
+
+      const latest = await fetchLiveState(sessionId);
+      schedulePoll(sessionId, latest?.session.status ?? status);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to process suggestion");
+    } finally {
+      setResponding(null);
+    }
+  }
+
   const session = state?.session;
   const status = session?.status ?? "created";
 
@@ -226,6 +255,55 @@ export default function LiveMeetingPage({ params }: Props) {
         {/* Transcript / Notes / Actions panel */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Tabs */}
+          {state?.pending_response && (
+            <div className="mx-6 mt-5 rounded-2xl border border-[#6DD8F0]/25 bg-[#0d1628] p-4 shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-[#9BE9FF]">
+                    <Send className="h-4 w-4" />
+                    <p className="text-sm font-semibold">Suggested reply ready</p>
+                    <span className="rounded-full bg-[#6DD8F0]/12 px-2 py-0.5 text-xs font-medium text-[#b8f3ff]">
+                      {Math.round(state.pending_response.confidence * 100)}%
+                    </span>
+                  </div>
+                  <p className="text-sm leading-relaxed text-slate-200">
+                    {state.pending_response.text}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {state.pending_response.reason}
+                  </p>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-3">
+                  <button
+                    onClick={() => handlePendingResponse(false)}
+                    disabled={responding !== null}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-700/80 bg-[#111828] px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-600 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {responding === "reject" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <X className="h-4 w-4" />
+                    )}
+                    Dismiss
+                  </button>
+                  <button
+                    onClick={() => handlePendingResponse(true)}
+                    disabled={responding !== null}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#4F94F8] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {responding === "approve" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Volume2 className="h-4 w-4" />
+                    )}
+                    Approve and Speak
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex border-b border-slate-800 px-6 flex-shrink-0">
             {(
               [
@@ -486,8 +564,26 @@ function AgentStatusPanel({ state }: { state: LiveSessionState | null }) {
             Current Topic
           </p>
           <p className="text-sm text-slate-300 bg-[#111828] border border-slate-800/60 rounded-lg p-3 leading-relaxed">
-            {note.summary?.split(".")[0] ?? "—"}
+            {note.summary
+              ? markdownToPlainText(note.summary).split(".")[0]?.trim() || "—"
+              : "—"}
           </p>
+        </div>
+      )}
+
+      {state?.pending_response && (
+        <div>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+            Pending Reply
+          </p>
+          <div className="bg-[#111828] border border-[#6DD8F0]/20 rounded-lg p-3 space-y-2">
+            <p className="text-sm text-slate-200 leading-relaxed">
+              {state.pending_response.text}
+            </p>
+            <p className="text-xs text-slate-500">
+              Confidence {Math.round(state.pending_response.confidence * 100)}%
+            </p>
+          </div>
         </div>
       )}
 

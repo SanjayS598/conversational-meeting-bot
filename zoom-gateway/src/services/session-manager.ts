@@ -193,6 +193,9 @@ class SessionManager {
     await geminiBrainClient.startSession(session.id, {
       meetingObjective: input.meeting_objective ?? `Take notes for meeting at ${session.meeting_url}`,
       prepNotes: input.prep_notes,
+      mode: input.mode,
+      userTone: input.user_tone,
+      speakThreshold: input.speak_threshold,
       prepId: input.prep_id,
       botDisplayName: session.bot_display_name,
       voiceProfileId: input.voice_profile_id,
@@ -310,4 +313,3 @@ class SessionManager {
 }
 
 export const sessionManager = new SessionManager();
-

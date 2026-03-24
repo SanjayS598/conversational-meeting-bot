@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { callService } from "@/lib/service-client";
 import { NextResponse } from "next/server";
 import type { LiveSessionState } from "@/lib/types";
 
@@ -34,6 +35,7 @@ export async function GET(_req: Request, { params }: Params) {
       transcript: [],
       notes: null,
       action_items: [],
+      pending_response: null,
       agent_speaking: false,
       last_event: null,
     };
@@ -41,11 +43,14 @@ export async function GET(_req: Request, { params }: Params) {
     return NextResponse.json(state);
   }
 
+  const geminiUrl = process.env.GEMINI_SERVICE_URL ?? "http://localhost:3002";
+
   const [
     { data: transcript },
     { data: notes },
     { data: actions },
     { data: events },
+    notesResponse,
   ] = await Promise.all([
     supabase
       .from("transcript_segments")
@@ -69,7 +74,14 @@ export async function GET(_req: Request, { params }: Params) {
       .eq("session_id", id)
       .order("created_at", { ascending: false })
       .limit(1),
+    callService(geminiUrl, `/brain/sessions/${id}/notes`).catch(() => null),
   ]);
+
+  let pendingResponse: LiveSessionState["pending_response"] = null;
+  if (notesResponse?.ok) {
+    const brainNotes = await notesResponse.json().catch(() => null);
+    pendingResponse = brainNotes?.pending_response ?? null;
+  }
 
   const lastEvent = events?.[0] ?? null;
   const agentSpeaking =
@@ -81,6 +93,7 @@ export async function GET(_req: Request, { params }: Params) {
     transcript: transcript ?? [],
     notes: notes ?? null,
     action_items: actions ?? [],
+    pending_response: pendingResponse,
     agent_speaking: agentSpeaking,
     last_event: lastEvent,
   };

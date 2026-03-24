@@ -28,6 +28,12 @@ export interface StartSessionInput {
   meeting_objective?: string;
   /** Longer background notes or context for the AI brain. */
   prep_notes?: string;
+  /** Brain mode, mapped from UI agent settings. */
+  mode?: 'notes_only' | 'suggest' | 'auto_speak';
+  /** Reply tone forwarded to the brain service. */
+  user_tone?: string;
+  /** Minimum confidence needed before speaking. */
+  speak_threshold?: number;
   /** prep_id from /voice/prepare — activates conversational AI in the brain. */
   prep_id?: string;
   /** Selected voice profile id from the control backend. */

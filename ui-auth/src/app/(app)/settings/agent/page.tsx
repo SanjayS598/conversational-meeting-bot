@@ -122,7 +122,7 @@ export default function AgentSettingsPage() {
             placeholder="e.g. Sanjay"
           />
           <p className="text-xs text-slate-500 mt-1.5">
-            Used in the agent's greeting: "I am an AI agent sent by <strong>you</strong>…"
+            Used in the agent&apos;s greeting: &quot;I am an AI agent sent by <strong>you</strong>…&quot;
           </p>
         </div>
 

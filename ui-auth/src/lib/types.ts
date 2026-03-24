@@ -81,6 +81,15 @@ export interface AgentEvent {
   created_at: string;
 }
 
+export interface PendingAgentResponse {
+  text: string;
+  reason: string;
+  priority: "low" | "medium" | "high";
+  requires_approval: boolean;
+  max_speak_seconds: number;
+  confidence: number;
+}
+
 // ─── Live session state (polled from control backend) ────────────────────────
 
 export interface LiveSessionState {
@@ -88,6 +97,7 @@ export interface LiveSessionState {
   transcript: TranscriptSegment[];
   notes: MeetingNote | null;
   action_items: ActionItem[];
+  pending_response: PendingAgentResponse | null;
   agent_speaking: boolean;
   last_event: AgentEvent | null;
 }

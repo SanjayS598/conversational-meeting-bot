@@ -1,4 +1,7 @@
-import Link from "next/link";
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   ArrowRight,
   BrainCircuit,
@@ -7,7 +10,6 @@ import {
   FileText,
   Layers3,
   MessagesSquare,
-  Sparkles,
   Waves,
 } from "lucide-react";
 
@@ -53,10 +55,24 @@ interface LandingPageProps {
 export default function LandingPage({
   isAuthenticated = false,
 }: LandingPageProps) {
+  const router = useRouter();
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const primaryHref = isAuthenticated ? "/dashboard" : "/login";
 
+  function handleStartTransition() {
+    if (isTransitioning) return;
+    setIsTransitioning(true);
+    window.setTimeout(() => {
+      router.push(primaryHref);
+    }, 720);
+  }
+
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#080e1c] text-slate-100">
+    <main
+      className={`relative min-h-screen overflow-hidden bg-[#080e1c] text-slate-100 ${
+        isTransitioning ? "landing-transitioning" : ""
+      }`}
+    >
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(109,216,240,0.13),transparent_24%),radial-gradient(circle_at_80%_16%,rgba(155,127,212,0.16),transparent_24%),radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.08),transparent_40%),linear-gradient(180deg,rgba(8,14,28,0.42)_0%,rgba(8,14,28,0.86)_58%,#080e1c_100%)]" />
         <div className="absolute left-1/2 top-24 h-[42rem] w-[42rem] -translate-x-1/2 rounded-full bg-[#7442C8]/18 blur-3xl orb-float" />
@@ -81,9 +97,36 @@ export default function LandingPage({
             />
           ))}
         </div>
+
+        {isTransitioning && (
+          <div className="absolute inset-0 overflow-hidden">
+            {Array.from({ length: 18 }, (_, index) => (
+              <span
+                key={index}
+                className="wind-streak absolute left-[-18%] h-[2px] rounded-full bg-white/85"
+                style={{
+                  top: `${6 + index * 4.8}%`,
+                  width: `${120 + (index % 5) * 52}px`,
+                  animationDelay: `${index * 26}ms`,
+                }}
+              />
+            ))}
+            {Array.from({ length: 28 }, (_, index) => (
+              <span
+                key={`mist-${index}`}
+                className="wind-mote absolute h-1.5 w-1.5 rounded-full bg-white/80"
+                style={{
+                  top: `${10 + ((index * 13) % 78)}%`,
+                  left: `${4 + ((index * 7) % 18)}%`,
+                  animationDelay: `${index * 18}ms`,
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      <section className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 pb-16 pt-6 sm:px-8 lg:px-10">
+      <section className="landing-shell relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 pb-16 pt-6 sm:px-8 lg:px-10">
         <header className="reveal flex items-center justify-between rounded-full border border-white/10 bg-white/[0.05] px-4 py-3 shadow-[0_10px_40px_rgba(0,0,0,0.22)] backdrop-blur-xl sm:px-6">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.28em] text-white/90">
@@ -94,13 +137,15 @@ export default function LandingPage({
             </p>
           </div>
 
-          <Link
-            href={primaryHref}
+          <button
+            type="button"
+            onClick={handleStartTransition}
+            disabled={isTransitioning}
             className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#3B82F6] via-[#7442C8] to-[#6DD8F0] px-4 py-2 text-sm font-semibold text-white shadow-[0_14px_40px_rgba(59,130,246,0.34)] transition duration-300 hover:scale-[1.02] hover:shadow-[0_18px_48px_rgba(109,216,240,0.28)]"
           >
             Get started with Clairo
             <ArrowRight className="h-4 w-4" />
-          </Link>
+          </button>
         </header>
 
         <div className="grid flex-1 items-center gap-16 py-12 lg:grid-cols-[0.94fr_1.06fr] lg:py-18">
@@ -121,13 +166,15 @@ export default function LandingPage({
             </div>
 
             <div className="reveal flex flex-col gap-4 sm:flex-row">
-              <Link
-                href={primaryHref}
+              <button
+                type="button"
+                onClick={handleStartTransition}
+                disabled={isTransitioning}
                 className="inline-flex items-center justify-center gap-2 rounded-[1.35rem] bg-gradient-to-r from-[#3B82F6] via-[#7442C8] to-[#6DD8F0] px-7 py-4 text-base font-semibold text-white shadow-[0_24px_60px_rgba(59,130,246,0.3)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_30px_70px_rgba(109,216,240,0.3)]"
               >
                 Get started with Clairo
                 <ArrowRight className="h-4 w-4" />
-              </Link>
+              </button>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
